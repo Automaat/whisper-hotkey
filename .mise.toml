@@ -1,2 +1,2 @@
 [tools]
-rust = "1.84"
+rust = "1.91"  # edition2024 support for coreaudio-sys

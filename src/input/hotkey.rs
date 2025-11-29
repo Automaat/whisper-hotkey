@@ -4,8 +4,9 @@ use global_hotkey::{
     GlobalHotKeyEvent, GlobalHotKeyManager,
 };
 use std::sync::{Arc, Mutex};
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
+use crate::audio::AudioCapture;
 use crate::config::HotkeyConfig;
 
 /// Application state machine
@@ -21,11 +22,12 @@ pub struct HotkeyManager {
     manager: GlobalHotKeyManager,
     hotkey: HotKey,
     state: Arc<Mutex<AppState>>,
+    audio: Arc<Mutex<AudioCapture>>,
 }
 
 impl HotkeyManager {
     /// Create and register global hotkey from config
-    pub fn new(config: &HotkeyConfig) -> Result<Self> {
+    pub fn new(config: &HotkeyConfig, audio: Arc<Mutex<AudioCapture>>) -> Result<Self> {
         let manager = GlobalHotKeyManager::new().context("failed to create hotkey manager")?;
 
         let modifiers = Self::parse_modifiers(&config.modifiers)?;
@@ -42,6 +44,7 @@ impl HotkeyManager {
             manager,
             hotkey,
             state: Arc::new(Mutex::new(AppState::Idle)),
+            audio,
         })
     }
 
@@ -58,7 +61,12 @@ impl HotkeyManager {
             AppState::Idle => {
                 info!("hotkey pressed: Idle → Recording");
                 *state = AppState::Recording;
-                // Phase 3: Start audio recording
+
+                // Start audio recording
+                if let Err(e) = self.audio.lock().unwrap().start_recording() {
+                    warn!("failed to start recording: {}", e);
+                    *state = AppState::Idle;
+                }
             }
             AppState::Recording => {
                 debug!("hotkey pressed while recording (ignored)");
@@ -76,11 +84,37 @@ impl HotkeyManager {
             AppState::Recording => {
                 info!("hotkey released: Recording → Processing");
                 *state = AppState::Processing;
-                // Phase 3: Stop audio recording
-                // Phase 4: Send to transcription
-                // For now, immediately return to Idle (no audio yet)
-                *state = AppState::Idle;
-                info!("processing complete: Processing → Idle");
+
+                // Stop audio recording and get samples
+                match self.audio.lock().unwrap().stop_recording() {
+                    Ok(samples) => {
+                        info!("captured {} samples (16kHz mono)", samples.len());
+
+                        // Save WAV debug file
+                        let timestamp = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap()
+                            .as_secs();
+                        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+                        let debug_path = std::path::PathBuf::from(home)
+                            .join(".whisper-hotkey")
+                            .join("debug")
+                            .join(format!("recording_{}.wav", timestamp));
+
+                        if let Err(e) = AudioCapture::save_wav_debug(&samples, &debug_path) {
+                            warn!("failed to save debug WAV: {}", e);
+                        }
+
+                        // Phase 4: Send to transcription
+                        // For now, just log and return to Idle
+                        *state = AppState::Idle;
+                        info!("processing complete: Processing → Idle");
+                    }
+                    Err(e) => {
+                        warn!("failed to stop recording: {}", e);
+                        *state = AppState::Idle;
+                    }
+                }
             }
             AppState::Idle => {
                 debug!("hotkey released while idle (ignored)");
