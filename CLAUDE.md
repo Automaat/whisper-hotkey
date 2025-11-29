@@ -108,6 +108,26 @@ unsafe fn audio_callback(device_ptr: *mut AudioDevice) {
 - Audio thread: Lock-free only (ring buffer, atomics)
 - Main/transcription: Standard primitives OK (`Arc<Mutex<T>>`, channels)
 
+**Linter Errors:**
+
+**ALWAYS:**
+
+- Attempt to fix linter errors properly
+- Research solutions online if unclear how to fix
+- Fix root cause, not symptoms
+
+**NEVER:**
+
+- Use skip/disable directives (e.g., `// eslint-disable`, `# noqa`, `//nolint`)
+- Ignore linter warnings
+- Work around linter errors
+
+**If stuck:**
+
+- Try fixing the error
+- Research online for proper solution
+- If still unclear after research, ASK what to do (don't skip/disable)
+
 ---
 
 ## Simplicity Principles

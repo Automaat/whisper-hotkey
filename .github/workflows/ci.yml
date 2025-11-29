@@ -46,6 +46,13 @@ jobs:
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
       - name: Run clippy
         run: mise exec -- cargo clippy --all-targets --all-features -- -D warnings
+        env:
+          GGML_NO_ACCELERATE: 1
+          WHISPER_NO_AVX: 1
+          WHISPER_NO_AVX2: 1
+          WHISPER_NO_FMA: 1
+          CFLAGS: "-march=armv8-a"
+          CXXFLAGS: "-march=armv8-a"
 
   test:
     name: Test
@@ -72,6 +79,13 @@ jobs:
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
       - name: Run tests
         run: mise exec -- cargo test
+        env:
+          GGML_NO_ACCELERATE: 1
+          WHISPER_NO_AVX: 1
+          WHISPER_NO_AVX2: 1
+          WHISPER_NO_FMA: 1
+          CFLAGS: "-march=armv8-a"
+          CXXFLAGS: "-march=armv8-a"
 
   build:
     name: Build
@@ -98,3 +112,10 @@ jobs:
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
       - name: Build
         run: mise exec -- cargo build --release
+        env:
+          GGML_NO_ACCELERATE: 1
+          WHISPER_NO_AVX: 1
+          WHISPER_NO_AVX2: 1
+          WHISPER_NO_FMA: 1
+          CFLAGS: "-march=armv8-a"
+          CXXFLAGS: "-march=armv8-a"

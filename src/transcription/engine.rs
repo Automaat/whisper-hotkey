@@ -25,12 +25,20 @@ impl TranscriptionEngine {
     pub fn new(model_path: &Path) -> Result<Self, TranscriptionError> {
         tracing::info!(path = %model_path.display(), "loading whisper model");
 
+        let path_str = model_path
+            .to_str()
+            .ok_or_else(|| TranscriptionError::ModelLoad {
+                path: model_path.display().to_string(),
+                source: anyhow::anyhow!("model path contains invalid UTF-8"),
+            })?;
+
         let params = WhisperContextParameters::default();
-        let ctx = WhisperContext::new_with_params(model_path.to_str().unwrap_or_default(), params)
-            .map_err(|e| TranscriptionError::ModelLoad {
+        let ctx = WhisperContext::new_with_params(path_str, params).map_err(|e| {
+            TranscriptionError::ModelLoad {
                 path: model_path.display().to_string(),
                 source: anyhow::anyhow!("{:?}", e),
-            })?;
+            }
+        })?;
 
         tracing::info!("whisper model loaded successfully");
 
@@ -43,7 +51,10 @@ impl TranscriptionEngine {
     pub fn transcribe(&self, audio_data: &[f32]) -> Result<String, TranscriptionError> {
         tracing::debug!(samples = audio_data.len(), "starting transcription");
 
-        let ctx = self.ctx.lock().unwrap();
+        let ctx = self
+            .ctx
+            .lock()
+            .map_err(|e| anyhow::anyhow!("mutex poisoned: {}", e))?;
 
         // Create state for this transcription
         let mut state = ctx
@@ -65,9 +76,7 @@ impl TranscriptionEngine {
             .context("whisper inference failed")?;
 
         // Extract text from all segments
-        let num_segments = state.full_n_segments();
         let mut result = String::new();
-
         for segment in state.as_iter() {
             result.push_str(&segment.to_string());
         }
@@ -76,7 +85,7 @@ impl TranscriptionEngine {
         let result = result.trim().to_string();
 
         tracing::info!(
-            segments = num_segments,
+            segments = state.full_n_segments(),
             text_len = result.len(),
             "transcription completed"
         );
@@ -85,7 +94,11 @@ impl TranscriptionEngine {
     }
 }
 
-// Whisper context is thread-safe via Arc<Mutex<>>
+// SAFETY: TranscriptionEngine is thread-safe because:
+// 1. WhisperContext is wrapped in Arc<Mutex<>>, ensuring exclusive access
+// 2. All methods require acquiring the mutex lock before accessing the context
+// 3. No shared mutable state exists outside the mutex
+// 4. whisper-rs WhisperContext is documented as thread-safe when properly synchronized
 unsafe impl Send for TranscriptionEngine {}
 unsafe impl Sync for TranscriptionEngine {}
 

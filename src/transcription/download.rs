@@ -42,6 +42,9 @@ fn download_model(model_name: &str, model_path: &Path) -> Result<()> {
 
     tracing::info!(url = %url, "downloading model");
 
+    // Download to temporary file first for atomic operation
+    let temp_path = model_path.with_extension("tmp");
+
     let response = reqwest::blocking::get(&url)
         .with_context(|| format!("failed to download model from {}", url))?;
 
@@ -51,11 +54,24 @@ fn download_model(model_name: &str, model_path: &Path) -> Result<()> {
 
     let bytes = response.bytes().context("failed to read response bytes")?;
 
-    let mut file = fs::File::create(model_path)
-        .with_context(|| format!("failed to create model file at {}", model_path.display()))?;
+    // Write to temp file
+    let mut file = fs::File::create(&temp_path)
+        .with_context(|| format!("failed to create temp file at {}", temp_path.display()))?;
 
     file.write_all(&bytes)
-        .context("failed to write model to file")?;
+        .context("failed to write model to temp file")?;
+
+    // Drop file handle before rename
+    drop(file);
+
+    // Atomic rename - if this fails, temp file remains and will be cleaned up next run
+    fs::rename(&temp_path, model_path).with_context(|| {
+        format!(
+            "failed to rename {} to {}",
+            temp_path.display(),
+            model_path.display()
+        )
+    })?;
 
     tracing::info!(
         path = %model_path.display(),
