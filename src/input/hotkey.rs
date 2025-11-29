@@ -191,3 +191,155 @@ impl Drop for HotkeyManager {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_modifiers_control() {
+        let result = HotkeyManager::parse_modifiers(&["Control".to_string()]).unwrap();
+        assert_eq!(result, Modifiers::CONTROL);
+    }
+
+    #[test]
+    fn test_parse_modifiers_ctrl_alias() {
+        let result = HotkeyManager::parse_modifiers(&["Ctrl".to_string()]).unwrap();
+        assert_eq!(result, Modifiers::CONTROL);
+    }
+
+    #[test]
+    fn test_parse_modifiers_option() {
+        let result = HotkeyManager::parse_modifiers(&["Option".to_string()]).unwrap();
+        assert_eq!(result, Modifiers::ALT);
+    }
+
+    #[test]
+    fn test_parse_modifiers_alt_alias() {
+        let result = HotkeyManager::parse_modifiers(&["Alt".to_string()]).unwrap();
+        assert_eq!(result, Modifiers::ALT);
+    }
+
+    #[test]
+    fn test_parse_modifiers_command() {
+        let result = HotkeyManager::parse_modifiers(&["Command".to_string()]).unwrap();
+        assert_eq!(result, Modifiers::SUPER);
+    }
+
+    #[test]
+    fn test_parse_modifiers_super_alias() {
+        let result = HotkeyManager::parse_modifiers(&["Super".to_string()]).unwrap();
+        assert_eq!(result, Modifiers::SUPER);
+    }
+
+    #[test]
+    fn test_parse_modifiers_shift() {
+        let result = HotkeyManager::parse_modifiers(&["Shift".to_string()]).unwrap();
+        assert_eq!(result, Modifiers::SHIFT);
+    }
+
+    #[test]
+    fn test_parse_modifiers_multiple() {
+        let result =
+            HotkeyManager::parse_modifiers(&["Control".to_string(), "Option".to_string()])
+                .unwrap();
+        assert_eq!(result, Modifiers::CONTROL | Modifiers::ALT);
+    }
+
+    #[test]
+    fn test_parse_modifiers_all() {
+        let result = HotkeyManager::parse_modifiers(&[
+            "Control".to_string(),
+            "Option".to_string(),
+            "Command".to_string(),
+            "Shift".to_string(),
+        ])
+        .unwrap();
+        assert_eq!(
+            result,
+            Modifiers::CONTROL | Modifiers::ALT | Modifiers::SUPER | Modifiers::SHIFT
+        );
+    }
+
+    #[test]
+    fn test_parse_modifiers_invalid() {
+        let result = HotkeyManager::parse_modifiers(&["Invalid".to_string()]);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("unknown modifier"));
+    }
+
+    #[test]
+    fn test_parse_modifiers_empty() {
+        let result = HotkeyManager::parse_modifiers(&[]).unwrap();
+        assert_eq!(result, Modifiers::empty());
+    }
+
+    #[test]
+    fn test_parse_key_a_to_z() {
+        assert_eq!(HotkeyManager::parse_key("A").unwrap(), Code::KeyA);
+        assert_eq!(HotkeyManager::parse_key("B").unwrap(), Code::KeyB);
+        assert_eq!(HotkeyManager::parse_key("M").unwrap(), Code::KeyM);
+        assert_eq!(HotkeyManager::parse_key("Z").unwrap(), Code::KeyZ);
+    }
+
+    #[test]
+    fn test_parse_key_unsupported() {
+        let result = HotkeyManager::parse_key("F1");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("unsupported key"));
+    }
+
+    #[test]
+    fn test_parse_key_lowercase() {
+        let result = HotkeyManager::parse_key("a");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_key_empty() {
+        let result = HotkeyManager::parse_key("");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_app_state_initial_is_idle() {
+        let state = AppState::Idle;
+        assert_eq!(state, AppState::Idle);
+    }
+
+    #[test]
+    fn test_app_state_transitions() {
+        let mut state = AppState::Idle;
+        assert_eq!(state, AppState::Idle);
+
+        state = AppState::Recording;
+        assert_eq!(state, AppState::Recording);
+
+        state = AppState::Processing;
+        assert_eq!(state, AppState::Processing);
+
+        state = AppState::Idle;
+        assert_eq!(state, AppState::Idle);
+    }
+
+    #[test]
+    #[ignore] // Requires audio hardware and global hotkey registration
+    fn test_hotkey_manager_creation() {
+        // Would need to:
+        // 1. Mock or create AudioCapture
+        // 2. Handle global hotkey registration (may conflict with other tests)
+        // Skip for now as it's integration-level testing
+    }
+
+    #[test]
+    #[ignore] // Requires state machine with audio integration
+    fn test_state_transitions_on_press_release() {
+        // Would need to:
+        // 1. Mock AudioCapture
+        // 2. Test state transitions: Idle → Recording → Processing → Idle
+        // Skip for now as it's integration-level testing
+    }
+}

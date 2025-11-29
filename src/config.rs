@@ -100,3 +100,128 @@ log_path = "~/.whisper-hotkey/crash.log"
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::env;
+
+    #[test]
+    fn test_expand_path_with_tilde() {
+        let home = env::var("HOME").expect("HOME not set");
+        let result = Config::expand_path("~/test/path").unwrap();
+        assert_eq!(result, PathBuf::from(home).join("test/path"));
+    }
+
+    #[test]
+    fn test_expand_path_without_tilde() {
+        let result = Config::expand_path("/absolute/path").unwrap();
+        assert_eq!(result, PathBuf::from("/absolute/path"));
+    }
+
+    #[test]
+    fn test_expand_path_relative() {
+        let result = Config::expand_path("relative/path").unwrap();
+        assert_eq!(result, PathBuf::from("relative/path"));
+    }
+
+    #[test]
+    fn test_parse_valid_config() {
+        let toml = r#"
+[hotkey]
+modifiers = ["Control", "Option"]
+key = "Z"
+
+[audio]
+buffer_size = 1024
+sample_rate = 16000
+
+[model]
+name = "small"
+path = "~/.whisper-hotkey/models/ggml-small.bin"
+preload = true
+
+[telemetry]
+enabled = true
+log_path = "~/.whisper-hotkey/crash.log"
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.hotkey.modifiers, vec!["Control", "Option"]);
+        assert_eq!(config.hotkey.key, "Z");
+        assert_eq!(config.audio.buffer_size, 1024);
+        assert_eq!(config.audio.sample_rate, 16000);
+        assert_eq!(config.model.name, "small");
+        assert!(config.telemetry.enabled);
+    }
+
+    #[test]
+    fn test_parse_invalid_toml() {
+        let invalid_toml = r#"
+[hotkey
+modifiers = ["Control"
+"#;
+        let result: Result<Config, _> = toml::from_str(invalid_toml);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_missing_required_field() {
+        let toml = r#"
+[hotkey]
+modifiers = ["Control"]
+
+[audio]
+buffer_size = 1024
+sample_rate = 16000
+
+[model]
+name = "small"
+path = "~/models/ggml-small.bin"
+preload = true
+"#;
+        let result: Result<Config, _> = toml::from_str(toml);
+        assert!(result.is_err()); // Missing telemetry section
+    }
+
+    #[test]
+    fn test_parse_different_modifiers() {
+        let toml = r#"
+[hotkey]
+modifiers = ["Command", "Shift"]
+key = "V"
+
+[audio]
+buffer_size = 2048
+sample_rate = 16000
+
+[model]
+name = "base"
+path = "/usr/local/share/whisper/base.bin"
+preload = false
+
+[telemetry]
+enabled = false
+log_path = "/tmp/test.log"
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.hotkey.modifiers, vec!["Command", "Shift"]);
+        assert_eq!(config.hotkey.key, "V");
+        assert_eq!(config.audio.buffer_size, 2048);
+        assert!(!config.model.preload);
+        assert!(!config.telemetry.enabled);
+    }
+
+    #[test]
+    #[ignore] // Requires filesystem access
+    fn test_load_creates_default_if_missing() {
+        // This test would require setting up a temp directory and manipulating HOME
+        // Skip for now as it's integration-level testing
+    }
+
+    #[test]
+    #[ignore] // Requires filesystem access
+    fn test_load_reads_existing_config() {
+        // This test would require creating a temp config file
+        // Skip for now as it's integration-level testing
+    }
+}
