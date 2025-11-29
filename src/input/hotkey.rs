@@ -241,8 +241,7 @@ mod tests {
     #[test]
     fn test_parse_modifiers_multiple() {
         let result =
-            HotkeyManager::parse_modifiers(&["Control".to_string(), "Option".to_string()])
-                .unwrap();
+            HotkeyManager::parse_modifiers(&["Control".to_string(), "Option".to_string()]).unwrap();
         assert_eq!(result, Modifiers::CONTROL | Modifiers::ALT);
     }
 
@@ -265,10 +264,7 @@ mod tests {
     fn test_parse_modifiers_invalid() {
         let result = HotkeyManager::parse_modifiers(&["Invalid".to_string()]);
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("unknown modifier"));
+        assert!(result.unwrap_err().to_string().contains("unknown modifier"));
     }
 
     #[test]
