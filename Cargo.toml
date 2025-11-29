@@ -15,8 +15,10 @@ thiserror = "1"
 core-graphics = "0.23"
 cocoa = "0.25"
 
-# Phase 2+: Add later
-# global-hotkey = "0.6"
+# Phase 2: Global Hotkey
+global-hotkey = "0.6"
+
+# Phase 3+: Add later
 # cpal = "0.15"
 # whisper-rs = "0.15"
 # reqwest = { version = "0.11", features = ["blocking"] }
