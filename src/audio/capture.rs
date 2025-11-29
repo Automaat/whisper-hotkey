@@ -206,3 +206,284 @@ impl AudioCapture {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Mock AudioCapture for testing conversion logic
+    fn mock_audio_capture(sample_rate: u32, channels: u16) -> AudioCapture {
+        AudioCapture {
+            stream: None,
+            ring_buffer_consumer: HeapRb::<f32>::new(1024).split().1,
+            is_recording: Arc::new(AtomicBool::new(false)),
+            device_sample_rate: sample_rate,
+            device_channels: channels,
+        }
+    }
+
+    #[test]
+    fn test_stereo_to_mono_conversion() {
+        let capture = mock_audio_capture(16000, 2);
+
+        // Stereo samples: [L1, R1, L2, R2, L3, R3]
+        let stereo_samples = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+
+        let result = capture.convert_to_16khz_mono(&stereo_samples).unwrap();
+
+        // Expected: [(1.0+2.0)/2, (3.0+4.0)/2, (5.0+6.0)/2]
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0], 1.5);
+        assert_eq!(result[1], 3.5);
+        assert_eq!(result[2], 5.5);
+    }
+
+    #[test]
+    fn test_mono_passthrough_no_resampling() {
+        let capture = mock_audio_capture(16000, 1);
+
+        let mono_samples = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+
+        let result = capture.convert_to_16khz_mono(&mono_samples).unwrap();
+
+        // Should pass through unchanged
+        assert_eq!(result, mono_samples);
+    }
+
+    #[test]
+    fn test_downsampling_48khz_to_16khz() {
+        let capture = mock_audio_capture(48000, 1);
+
+        // 48kHz -> 16kHz is 3:1 ratio
+        let samples = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0];
+
+        let result = capture.convert_to_16khz_mono(&samples).unwrap();
+
+        // 9 samples at 48kHz -> 3 samples at 16kHz
+        assert_eq!(result.len(), 3);
+
+        // Linear interpolation should give values between input samples
+        for &sample in &result {
+            assert!(sample >= 1.0 && sample <= 9.0);
+        }
+    }
+
+    #[test]
+    fn test_upsampling_8khz_to_16khz() {
+        let capture = mock_audio_capture(8000, 1);
+
+        // 8kHz -> 16kHz is 1:2 ratio
+        let samples = vec![1.0, 2.0, 3.0, 4.0];
+
+        let result = capture.convert_to_16khz_mono(&samples).unwrap();
+
+        // 4 samples at 8kHz -> 8 samples at 16kHz
+        assert_eq!(result.len(), 8);
+
+        // Interpolated values should be between min and max
+        for &sample in &result {
+            assert!(sample >= 1.0 && sample <= 4.0);
+        }
+    }
+
+    #[test]
+    fn test_stereo_downsampling() {
+        let capture = mock_audio_capture(44100, 2);
+
+        // Create 10 stereo frames (20 samples)
+        let mut samples = Vec::new();
+        for i in 0..10 {
+            samples.push(i as f32);
+            samples.push((i + 1) as f32);
+        }
+
+        let result = capture.convert_to_16khz_mono(&samples).unwrap();
+
+        // 44.1kHz -> 16kHz is ~2.76:1, 10 frames -> ~4 samples
+        assert!(result.len() >= 3 && result.len() <= 5);
+
+        // Mono conversion should average channels
+        for &sample in &result {
+            assert!(sample >= 0.0 && sample <= 11.0);
+        }
+    }
+
+    #[test]
+    fn test_empty_samples() {
+        let capture = mock_audio_capture(44100, 2);
+
+        let empty: Vec<f32> = vec![];
+        let result = capture.convert_to_16khz_mono(&empty).unwrap();
+
+        assert_eq!(result.len(), 0);
+    }
+
+    #[test]
+    fn test_single_sample_mono() {
+        let capture = mock_audio_capture(16000, 1);
+
+        let samples = vec![42.0];
+        let result = capture.convert_to_16khz_mono(&samples).unwrap();
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0], 42.0);
+    }
+
+    #[test]
+    fn test_multichannel_conversion() {
+        let capture = mock_audio_capture(16000, 4); // 4 channels
+
+        // 4-channel samples: [C1, C2, C3, C4, C1, C2, C3, C4]
+        let samples = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+
+        let result = capture.convert_to_16khz_mono(&samples).unwrap();
+
+        // Expected: [(1+2+3+4)/4, (5+6+7+8)/4] = [2.5, 6.5]
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0], 2.5);
+        assert_eq!(result[1], 6.5);
+    }
+
+    #[test]
+    fn test_resampling_preserves_bounds() {
+        let capture = mock_audio_capture(22050, 1);
+
+        // All samples in range [-1.0, 1.0]
+        let samples = vec![-1.0, -0.5, 0.0, 0.5, 1.0];
+
+        let result = capture.convert_to_16khz_mono(&samples).unwrap();
+
+        // Linear interpolation should keep values in same range
+        for &sample in &result {
+            assert!(sample >= -1.0 && sample <= 1.0);
+        }
+    }
+
+    #[test]
+    fn test_wav_debug_spec() {
+        use std::env;
+        use std::fs;
+
+        let samples = vec![0.1, 0.2, 0.3, 0.4, 0.5];
+        let temp_dir = env::temp_dir();
+        let wav_path = temp_dir.join("test_audio.wav");
+
+        // Clean up if exists
+        let _ = fs::remove_file(&wav_path);
+
+        let result = AudioCapture::save_wav_debug(&samples, &wav_path);
+        assert!(result.is_ok());
+
+        // Verify file exists
+        assert!(wav_path.exists());
+
+        // Read back and verify spec
+        let reader = hound::WavReader::open(&wav_path).unwrap();
+        let spec = reader.spec();
+
+        assert_eq!(spec.channels, 1);
+        assert_eq!(spec.sample_rate, 16000);
+        assert_eq!(spec.bits_per_sample, 32);
+        assert_eq!(spec.sample_format, hound::SampleFormat::Float);
+
+        // Verify sample count
+        let sample_count = reader.len() as usize;
+        assert_eq!(sample_count, samples.len());
+
+        // Clean up
+        let _ = fs::remove_file(wav_path);
+    }
+
+    // Integration tests (require audio hardware, run with: cargo test -- --ignored)
+
+    #[test]
+    #[ignore]
+    fn test_audio_capture_initialization() {
+        let config = AudioConfig {
+            buffer_size: 1024,
+            sample_rate: 16000,
+        };
+
+        let result = AudioCapture::new(&config);
+        assert!(
+            result.is_ok(),
+            "Audio capture should initialize with valid config"
+        );
+
+        let capture = result.unwrap();
+        assert!(capture.device_sample_rate > 0);
+        assert!(capture.device_channels > 0);
+    }
+
+    #[test]
+    #[ignore]
+    fn test_start_stop_recording() {
+        let config = AudioConfig {
+            buffer_size: 1024,
+            sample_rate: 16000,
+        };
+
+        let mut capture = AudioCapture::new(&config).unwrap();
+
+        // Start recording
+        let start_result = capture.start_recording();
+        assert!(start_result.is_ok());
+        assert!(capture.is_recording.load(Ordering::Relaxed));
+
+        // Wait a bit to capture some audio
+        std::thread::sleep(std::time::Duration::from_millis(100));
+
+        // Stop recording
+        let stop_result = capture.stop_recording();
+        assert!(stop_result.is_ok());
+        assert!(!capture.is_recording.load(Ordering::Relaxed));
+
+        let _samples = stop_result.unwrap();
+        // Should have captured some samples (depends on system)
+        // In quiet environment might be 0, so just verify it doesn't error
+    }
+
+    #[test]
+    #[ignore]
+    fn test_multiple_recording_cycles() {
+        let config = AudioConfig {
+            buffer_size: 1024,
+            sample_rate: 16000,
+        };
+
+        let mut capture = AudioCapture::new(&config).unwrap();
+
+        for _ in 0..3 {
+            capture.start_recording().unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            let _samples = capture.stop_recording().unwrap();
+            // Just verify no errors, sample count depends on audio input
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn test_ring_buffer_clearing() {
+        let config = AudioConfig {
+            buffer_size: 1024,
+            sample_rate: 16000,
+        };
+
+        let mut capture = AudioCapture::new(&config).unwrap();
+
+        // First recording
+        capture.start_recording().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        let samples1 = capture.stop_recording().unwrap();
+
+        // Second recording should start fresh (buffer cleared)
+        capture.start_recording().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        let samples2 = capture.stop_recording().unwrap();
+
+        // Both should have captured data independently
+        // (actual lengths depend on audio input)
+        // Just verify no errors during recording cycles
+        let _ = (samples1, samples2);
+    }
+}
