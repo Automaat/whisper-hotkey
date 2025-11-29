@@ -264,7 +264,7 @@ mod tests {
 
         // Linear interpolation should give values between input samples
         for &sample in &result {
-            assert!(sample >= 1.0 && sample <= 9.0);
+            assert!((1.0..=9.0).contains(&sample));
         }
     }
 
@@ -282,7 +282,7 @@ mod tests {
 
         // Interpolated values should be between min and max
         for &sample in &result {
-            assert!(sample >= 1.0 && sample <= 4.0);
+            assert!((1.0..=4.0).contains(&sample));
         }
     }
 
@@ -304,7 +304,7 @@ mod tests {
 
         // Mono conversion should average channels
         for &sample in &result {
-            assert!(sample >= 0.0 && sample <= 11.0);
+            assert!((0.0..=11.0).contains(&sample));
         }
     }
 
@@ -355,7 +355,7 @@ mod tests {
 
         // Linear interpolation should keep values in same range
         for &sample in &result {
-            assert!(sample >= -1.0 && sample <= 1.0);
+            assert!((-1.0..=1.0).contains(&sample));
         }
     }
 
