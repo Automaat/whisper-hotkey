@@ -10,6 +10,7 @@ pub enum TranscriptionError {
     ModelLoad { path: String, source: anyhow::Error },
 
     #[error("failed to create whisper state")]
+    #[allow(dead_code)] // Used in Phase 5
     StateCreation,
 
     #[error("failed to transcribe audio")]
@@ -17,6 +18,7 @@ pub enum TranscriptionError {
 }
 
 pub struct TranscriptionEngine {
+    #[allow(dead_code)] // Used in transcribe() method (Phase 5)
     ctx: Arc<Mutex<WhisperContext>>,
 }
 
@@ -48,6 +50,7 @@ impl TranscriptionEngine {
     }
 
     /// Transcribes audio samples (16kHz mono f32) to text with language auto-detection
+    #[allow(dead_code)] // Used in Phase 5
     pub fn transcribe(&self, audio_data: &[f32]) -> Result<String, TranscriptionError> {
         tracing::debug!(samples = audio_data.len(), "starting transcription");
 
