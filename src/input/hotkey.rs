@@ -46,6 +46,7 @@ impl HotkeyManager {
     }
 
     /// Get current state
+    #[allow(dead_code)] // Used in Phase 3+ for debugging/testing
     pub fn state(&self) -> AppState {
         *self.state.lock().unwrap()
     }
