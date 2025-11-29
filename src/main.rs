@@ -26,6 +26,7 @@ async fn main() -> Result<()> {
 
     // Phase 3: Audio recording
     let audio_capture = audio::AudioCapture::new(&config.audio)?;
+    #[allow(clippy::arc_with_non_send_sync)]
     let audio_capture = Arc::new(Mutex::new(audio_capture));
     println!("✓ Audio capture initialized");
 

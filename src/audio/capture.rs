@@ -10,6 +10,7 @@ use tracing::{debug, info, warn};
 use crate::config::AudioConfig;
 
 pub struct AudioCapture {
+    #[allow(dead_code)] // Kept alive to prevent stream drop
     stream: Option<cpal::Stream>,
     ring_buffer_consumer: HeapCons<f32>,
     is_recording: Arc<AtomicBool>,
