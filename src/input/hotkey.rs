@@ -8,6 +8,8 @@ use tracing::{debug, info, warn};
 
 use crate::audio::AudioCapture;
 use crate::config::HotkeyConfig;
+use crate::input::cgevent;
+use crate::transcription::TranscriptionEngine;
 
 /// Application state machine
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -23,11 +25,16 @@ pub struct HotkeyManager {
     hotkey: HotKey,
     state: Arc<Mutex<AppState>>,
     audio: Arc<Mutex<AudioCapture>>,
+    transcription: Option<Arc<TranscriptionEngine>>,
 }
 
 impl HotkeyManager {
     /// Create and register global hotkey from config
-    pub fn new(config: &HotkeyConfig, audio: Arc<Mutex<AudioCapture>>) -> Result<Self> {
+    pub fn new(
+        config: &HotkeyConfig,
+        audio: Arc<Mutex<AudioCapture>>,
+        transcription: Option<Arc<TranscriptionEngine>>,
+    ) -> Result<Self> {
         let manager = GlobalHotKeyManager::new().context("failed to create hotkey manager")?;
 
         let modifiers = Self::parse_modifiers(&config.modifiers)?;
@@ -45,6 +52,7 @@ impl HotkeyManager {
             hotkey,
             state: Arc::new(Mutex::new(AppState::Idle)),
             audio,
+            transcription,
         })
     }
 
@@ -105,8 +113,25 @@ impl HotkeyManager {
                             warn!("failed to save debug WAV: {}", e);
                         }
 
-                        // Phase 4: Send to transcription
-                        // For now, just log and return to Idle
+                        // Phase 5: Transcription + Text Insertion
+                        if let Some(engine) = &self.transcription {
+                            match engine.transcribe(&samples) {
+                                Ok(text) => {
+                                    info!(text_len = text.len(), "transcription successful");
+
+                                    // Insert text at cursor
+                                    if !cgevent::insert_text_safe(&text) {
+                                        warn!("text insertion failed, check telemetry logs");
+                                    }
+                                }
+                                Err(e) => {
+                                    warn!("transcription failed: {}", e);
+                                }
+                            }
+                        } else {
+                            warn!("transcription engine not available (preload disabled?)");
+                        }
+
                         *state = AppState::Idle;
                         info!("processing complete: Processing → Idle");
                     }
