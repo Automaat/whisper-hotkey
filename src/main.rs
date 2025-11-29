@@ -1,3 +1,4 @@
+mod audio;
 mod config;
 mod input;
 mod permissions;
@@ -5,6 +6,7 @@ mod telemetry;
 
 use anyhow::Result;
 use global_hotkey::GlobalHotKeyEvent;
+use std::sync::{Arc, Mutex};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -22,8 +24,15 @@ async fn main() -> Result<()> {
     permissions::request_all_permissions()?;
     println!("✓ Permissions OK");
 
+    // Phase 3: Audio recording
+    let audio_capture = audio::AudioCapture::new(&config.audio)?;
+    #[allow(clippy::arc_with_non_send_sync)]
+    let audio_capture = Arc::new(Mutex::new(audio_capture));
+    println!("✓ Audio capture initialized");
+
     // Phase 2: Global hotkey
-    let hotkey_manager = input::hotkey::HotkeyManager::new(&config.hotkey)?;
+    let hotkey_manager =
+        input::hotkey::HotkeyManager::new(&config.hotkey, Arc::clone(&audio_capture))?;
     println!(
         "✓ Hotkey registered: {:?} + {}",
         config.hotkey.modifiers, config.hotkey.key
