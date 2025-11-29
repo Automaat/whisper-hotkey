@@ -19,10 +19,10 @@ pub fn check_accessibility_permission() -> Result<()> {
     {
         // Try to create a CGEventSource to test accessibility access
         let source = core_graphics::event_source::CGEventSource::new(
-            core_graphics::event_source::CGEventSourceStateID::CombinedSessionState
+            core_graphics::event_source::CGEventSourceStateID::CombinedSessionState,
         );
 
-        if let Err(_) = source {
+        if source.is_err() {
             bail!("accessibility permission denied - enable in System Settings > Privacy & Security > Accessibility");
         }
 

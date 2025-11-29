@@ -6,9 +6,7 @@ use std::path::PathBuf;
 pub fn init(enabled: bool, log_path: &str) -> Result<()> {
     if !enabled {
         // Basic stdout logging only
-        tracing_subscriber::fmt()
-            .with_target(false)
-            .init();
+        tracing_subscriber::fmt().with_target(false).init();
         return Ok(());
     }
 
@@ -16,8 +14,7 @@ pub fn init(enabled: bool, log_path: &str) -> Result<()> {
 
     // Create parent directory if needed
     if let Some(parent) = expanded_path.parent() {
-        fs::create_dir_all(parent)
-            .context("failed to create log directory")?;
+        fs::create_dir_all(parent).context("failed to create log directory")?;
     }
 
     // Set up file appender
@@ -39,10 +36,9 @@ pub fn init(enabled: bool, log_path: &str) -> Result<()> {
 }
 
 fn expand_log_path(path: &str) -> Result<PathBuf> {
-    if path.starts_with("~/") {
-        let home = std::env::var("HOME")
-            .context("HOME environment variable not set")?;
-        Ok(PathBuf::from(home).join(&path[2..]))
+    if let Some(stripped) = path.strip_prefix("~/") {
+        let home = std::env::var("HOME").context("HOME environment variable not set")?;
+        Ok(PathBuf::from(home).join(stripped))
     } else {
         Ok(PathBuf::from(path))
     }
