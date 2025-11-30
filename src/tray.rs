@@ -1,8 +1,11 @@
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use tray_icon::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tray_icon::{Icon, TrayIconBuilder};
 
 use crate::config::Config;
+use crate::input::hotkey::AppState;
 
 #[derive(Debug, Clone)]
 pub enum TrayCommand {
@@ -20,12 +23,24 @@ pub enum TrayCommand {
 
 pub struct TrayManager {
     tray: tray_icon::TrayIcon,
+    state: Arc<Mutex<AppState>>,
+    current_icon_state: AppState,
+    cached_icons: HashMap<AppState, Icon>,
 }
 
 impl TrayManager {
-    pub fn new(config: &Config) -> Result<Self> {
-        let icon = Self::load_icon()?;
-        let menu = Self::build_menu(config)?;
+    pub fn new(config: &Config, state: Arc<Mutex<AppState>>) -> Result<Self> {
+        // Preload all three icons into cache
+        let mut cached_icons = HashMap::new();
+        cached_icons.insert(AppState::Idle, Self::load_icon(AppState::Idle)?);
+        cached_icons.insert(AppState::Recording, Self::load_icon(AppState::Recording)?);
+        cached_icons.insert(AppState::Processing, Self::load_icon(AppState::Processing)?);
+
+        let icon = cached_icons
+            .get(&AppState::Idle)
+            .context("idle icon not in cache")?
+            .clone();
+        let menu = Self::build_menu(config, Some(AppState::Idle))?;
 
         let tray = TrayIconBuilder::new()
             .with_menu(Box::new(menu))
@@ -34,27 +49,81 @@ impl TrayManager {
             .build()
             .context("failed to build tray icon")?;
 
-        Ok(Self { tray })
+        Ok(Self {
+            tray,
+            state,
+            current_icon_state: AppState::Idle,
+            cached_icons,
+        })
     }
 
-    fn load_icon() -> Result<Icon> {
-        // Load the 32x32 icon for Retina displays (will scale to 16x16 automatically)
-        let icon_path = concat!(env!("CARGO_MANIFEST_DIR"), "/icon-32.png");
-        let image = image::open(icon_path)
-            .context("failed to load icon-32.png")?
+    fn load_icon(state: AppState) -> Result<Icon> {
+        // Load appropriate icon based on state
+        let icon_filename = match state {
+            AppState::Idle => "icon-32.png",
+            AppState::Recording => "icon-recording-32.png",
+            AppState::Processing => "icon-processing-32.png",
+        };
+
+        let icon_path = format!("{}/{}", env!("CARGO_MANIFEST_DIR"), icon_filename);
+        tracing::debug!("loading icon for state {:?}: {}", state, icon_path);
+
+        let image = image::open(&icon_path)
+            .with_context(|| format!("failed to load {}", icon_filename))?
             .into_rgba8();
 
         let (width, height) = image.dimensions();
         let rgba = image.into_raw();
+        tracing::debug!("icon loaded: {}x{}, {} bytes", width, height, rgba.len());
 
         Icon::from_rgba(rgba, width, height).context("failed to create icon from RGBA data")
     }
 
-    fn build_menu(config: &Config) -> Result<Menu> {
+    /// Update icon and menu if state changed
+    pub fn update_icon_if_needed(&mut self, config: &Config) -> Result<()> {
+        let new_state = *self
+            .state
+            .lock()
+            .map_err(|e| anyhow!("state lock poisoned: {}", e))?;
+        if new_state != self.current_icon_state {
+            tracing::info!(
+                "🔄 tray state change: {:?} -> {:?}",
+                self.current_icon_state,
+                new_state
+            );
+
+            // Rebuild menu with new state (reliable feedback)
+            let new_menu = Self::build_menu(config, Some(new_state))?;
+            self.tray.set_menu(Some(Box::new(new_menu)));
+
+            // Try icon update (has known macOS bug but keep trying) - use cached icon
+            let icon = self
+                .cached_icons
+                .get(&new_state)
+                .context("icon not in cache")?
+                .clone();
+            self.tray.set_icon(Some(icon)).ok();
+
+            self.current_icon_state = new_state;
+            tracing::info!("✓ tray menu updated with state: {:?}", new_state);
+        }
+        Ok(())
+    }
+
+    fn build_menu(config: &Config, app_state: Option<AppState>) -> Result<Menu> {
         let menu = Menu::new();
 
-        // Status item (non-clickable)
-        let status = MenuItem::new("Whisper Hotkey", false, None);
+        // Status item showing current state (non-clickable)
+        let status_text = if let Some(state) = app_state {
+            match state {
+                AppState::Idle => "Whisper Hotkey - Ready",
+                AppState::Recording => "🎤 Recording...",
+                AppState::Processing => "⏳ Transcribing...",
+            }
+        } else {
+            "Whisper Hotkey"
+        };
+        let status = MenuItem::new(status_text, false, None);
         menu.append(&status)
             .context("failed to append status item")?;
         menu.append(&PredefinedMenuItem::separator())
@@ -222,7 +291,11 @@ impl TrayManager {
     }
 
     pub fn update_menu(&mut self, config: &Config) -> Result<()> {
-        let new_menu = Self::build_menu(config)?;
+        let current_state = *self
+            .state
+            .lock()
+            .map_err(|e| anyhow!("state lock poisoned: {}", e))?;
+        let new_menu = Self::build_menu(config, Some(current_state))?;
         self.tray.set_menu(Some(Box::new(new_menu)));
         Ok(())
     }
@@ -421,5 +494,58 @@ mod tests {
         let cmd = TrayCommand::Quit;
         let debug_str = format!("{:?}", cmd);
         assert!(debug_str.contains("Quit"));
+    }
+
+    #[test]
+    fn test_load_icon_idle() {
+        let result = TrayManager::load_icon(AppState::Idle);
+        assert!(result.is_ok(), "Should load idle icon");
+    }
+
+    #[test]
+    fn test_load_icon_recording() {
+        let result = TrayManager::load_icon(AppState::Recording);
+        assert!(result.is_ok(), "Should load recording icon");
+    }
+
+    #[test]
+    fn test_load_icon_processing() {
+        let result = TrayManager::load_icon(AppState::Processing);
+        assert!(result.is_ok(), "Should load processing icon");
+    }
+
+    #[test]
+    #[ignore] // Requires full config and tray icon initialization
+    fn test_state_icon_changes() {
+        // Verify state changes are properly detected
+        let state = Arc::new(Mutex::new(AppState::Idle));
+
+        // Load config (requires ~/.whisper-hotkey.toml)
+        let config = Config::load().unwrap();
+        let mut tray = TrayManager::new(&config, Arc::clone(&state)).unwrap();
+        assert_eq!(tray.current_icon_state, AppState::Idle);
+
+        // Change state to Recording
+        *state.lock().unwrap() = AppState::Recording;
+        let result = tray.update_icon_if_needed(&config);
+        assert!(result.is_ok());
+        assert_eq!(tray.current_icon_state, AppState::Recording);
+
+        // Change state to Processing
+        *state.lock().unwrap() = AppState::Processing;
+        let result = tray.update_icon_if_needed(&config);
+        assert!(result.is_ok());
+        assert_eq!(tray.current_icon_state, AppState::Processing);
+
+        // No change - should not reload icon
+        let result = tray.update_icon_if_needed(&config);
+        assert!(result.is_ok());
+        assert_eq!(tray.current_icon_state, AppState::Processing);
+
+        // Back to Idle
+        *state.lock().unwrap() = AppState::Idle;
+        let result = tray.update_icon_if_needed(&config);
+        assert!(result.is_ok());
+        assert_eq!(tray.current_icon_state, AppState::Idle);
     }
 }

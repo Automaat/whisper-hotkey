@@ -117,7 +117,9 @@ async fn main() -> Result<()> {
     );
 
     // Menubar tray icon
-    let mut tray_manager = tray::TrayManager::new(&config).context("failed to create tray icon")?;
+    let app_state = hotkey_manager.state_shared();
+    let mut tray_manager =
+        tray::TrayManager::new(&config, app_state).context("failed to create tray icon")?;
     println!("✓ Menubar icon created");
     tracing::info!("menubar tray icon initialized");
 
@@ -191,6 +193,11 @@ async fn main() -> Result<()> {
         if let Ok(event) = receiver.try_recv() {
             tracing::debug!("hotkey event received: {:?}", event);
             hotkey_manager.handle_event(event);
+        }
+
+        // Update tray menu/icon based on app state
+        if let Err(e) = tray_manager.update_icon_if_needed(&config) {
+            tracing::warn!(error = %e, "failed to update tray");
         }
 
         // Poll for tray menu events
