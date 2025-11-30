@@ -56,10 +56,9 @@ impl HotkeyManager {
         })
     }
 
-    /// Get current state
-    #[allow(dead_code)] // Used in Phase 3+ for debugging/testing
-    pub fn state(&self) -> AppState {
-        *self.state.lock().unwrap()
+    /// Get shared state for external monitoring (e.g., UI updates)
+    pub fn state_shared(&self) -> Arc<Mutex<AppState>> {
+        Arc::clone(&self.state)
     }
 
     /// Handle hotkey press event
