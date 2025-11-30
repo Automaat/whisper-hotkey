@@ -74,7 +74,12 @@ impl TrayManager {
 
         for (label, mods, key) in hotkeys {
             let is_selected = format!("{:?}+{}", mods, key) == current_hotkey;
-            let item = CheckMenuItem::new(label, is_selected, true, None);
+            let display_label = if is_selected {
+                format!("✓ {}", label)
+            } else {
+                label.to_string()
+            };
+            let item = MenuItem::new(&display_label, true, None);
             hotkey_submenu
                 .append(&item)
                 .context("failed to append hotkey item")?;
@@ -89,7 +94,12 @@ impl TrayManager {
 
         for model_name in models {
             let is_selected = config.model.name == model_name;
-            let item = CheckMenuItem::new(model_name, is_selected, true, None);
+            let display_label = if is_selected {
+                format!("✓ {}", model_name)
+            } else {
+                model_name.to_string()
+            };
+            let item = MenuItem::new(&display_label, true, None);
             model_submenu
                 .append(&item)
                 .context("failed to append model item")?;
@@ -104,9 +114,13 @@ impl TrayManager {
         // Threads submenu
         let threads_submenu = Submenu::new("Threads", true);
         for threads in [2, 4, 6, 8] {
-            let label = format!("{} threads", threads);
             let is_selected = config.model.threads == threads;
-            let item = CheckMenuItem::new(&label, is_selected, true, None);
+            let label = if is_selected {
+                format!("✓ {} threads", threads)
+            } else {
+                format!("{} threads", threads)
+            };
+            let item = MenuItem::new(&label, true, None);
             threads_submenu
                 .append(&item)
                 .context("failed to append threads item")?;
@@ -118,9 +132,13 @@ impl TrayManager {
         // Beam size submenu
         let beam_submenu = Submenu::new("Beam Size", true);
         for beam in [1, 3, 5, 8, 10] {
-            let label = format!("Beam size {}", beam);
             let is_selected = config.model.beam_size == beam;
-            let item = CheckMenuItem::new(&label, is_selected, true, None);
+            let label = if is_selected {
+                format!("✓ Beam size {}", beam)
+            } else {
+                format!("Beam size {}", beam)
+            };
+            let item = MenuItem::new(&label, true, None);
             beam_submenu
                 .append(&item)
                 .context("failed to append beam item")?;
@@ -145,7 +163,12 @@ impl TrayManager {
 
         for (label, lang_code) in languages {
             let is_selected = config.model.language.as_deref() == lang_code;
-            let item = CheckMenuItem::new(label, is_selected, true, None);
+            let display_label = if is_selected {
+                format!("✓ {}", label)
+            } else {
+                label.to_string()
+            };
+            let item = MenuItem::new(&display_label, true, None);
             lang_submenu
                 .append(&item)
                 .context("failed to append language item")?;
@@ -157,9 +180,13 @@ impl TrayManager {
         // Audio buffer submenu
         let buffer_submenu = Submenu::new("Audio Buffer", true);
         for size in [512, 1024, 2048, 4096] {
-            let label = format!("{} samples", size);
             let is_selected = config.audio.buffer_size == size;
-            let item = CheckMenuItem::new(&label, is_selected, true, None);
+            let label = if is_selected {
+                format!("✓ {} samples", size)
+            } else {
+                format!("{} samples", size)
+            };
+            let item = MenuItem::new(&label, true, None);
             buffer_submenu
                 .append(&item)
                 .context("failed to append buffer item")?;
@@ -213,6 +240,9 @@ impl TrayManager {
     }
 
     fn parse_menu_event(id: &str) -> Option<TrayCommand> {
+        // Strip checkmark if present
+        let id = id.trim_start_matches("✓ ");
+
         // Hotkeys
         if id == "Control+Option+Z" {
             return Some(TrayCommand::UpdateHotkey {
