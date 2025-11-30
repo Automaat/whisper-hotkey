@@ -124,9 +124,10 @@ impl HotkeyManager {
                             std::thread::spawn(move || {
                                 match engine.transcribe(&samples) {
                                     Ok(text) => {
+                                        let text_preview: String = text.chars().take(50).collect();
                                         info!(
                                             text_len = text.len(),
-                                            text_preview = %text.chars().take(50).collect::<String>(),
+                                            text_preview = %text_preview,
                                             "transcription successful"
                                         );
 
@@ -134,7 +135,8 @@ impl HotkeyManager {
                                         if !text.is_empty() {
                                             if !cgevent::insert_text_safe(&text) {
                                                 warn!(
-                                                    text = %text,
+                                                    text_len = text.len(),
+                                                    text_preview = %text_preview,
                                                     "text insertion failed, check telemetry logs"
                                                 );
                                             } else {
