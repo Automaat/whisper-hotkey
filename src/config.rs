@@ -38,6 +38,18 @@ pub struct ModelConfig {
     pub path: String,
     #[allow(dead_code)] // Used in Phase 4
     pub preload: bool,
+    #[serde(default = "default_threads")]
+    pub threads: usize,
+    #[serde(default = "default_beam_size")]
+    pub beam_size: usize,
+}
+
+fn default_threads() -> usize {
+    4 // Optimal for M1/M2 chips
+}
+
+fn default_beam_size() -> usize {
+    5 // Balance speed/accuracy
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -80,6 +92,8 @@ sample_rate = 16000
 name = "small"
 path = "~/.whisper-hotkey/models/ggml-small.bin"
 preload = true
+threads = 4        # CPU threads for inference (4 optimal for M1/M2)
+beam_size = 5      # Beam search size (higher = more accurate but slower)
 
 [telemetry]
 enabled = true
@@ -140,6 +154,8 @@ sample_rate = 16000
 name = "small"
 path = "~/.whisper-hotkey/models/ggml-small.bin"
 preload = true
+threads = 4
+beam_size = 5
 
 [telemetry]
 enabled = true
@@ -151,6 +167,8 @@ log_path = "~/.whisper-hotkey/crash.log"
         assert_eq!(config.audio.buffer_size, 1024);
         assert_eq!(config.audio.sample_rate, 16000);
         assert_eq!(config.model.name, "small");
+        assert_eq!(config.model.threads, 4);
+        assert_eq!(config.model.beam_size, 5);
         assert!(config.telemetry.enabled);
     }
 
@@ -198,6 +216,8 @@ sample_rate = 16000
 name = "base"
 path = "/usr/local/share/whisper/base.bin"
 preload = false
+threads = 8
+beam_size = 10
 
 [telemetry]
 enabled = false
@@ -208,7 +228,35 @@ log_path = "/tmp/test.log"
         assert_eq!(config.hotkey.key, "V");
         assert_eq!(config.audio.buffer_size, 2048);
         assert!(!config.model.preload);
+        assert_eq!(config.model.threads, 8);
+        assert_eq!(config.model.beam_size, 10);
         assert!(!config.telemetry.enabled);
+    }
+
+    #[test]
+    fn test_parse_config_with_default_optimization() {
+        let toml = r#"
+[hotkey]
+modifiers = ["Control"]
+key = "M"
+
+[audio]
+buffer_size = 512
+sample_rate = 16000
+
+[model]
+name = "tiny"
+path = "/tmp/tiny.bin"
+preload = true
+
+[telemetry]
+enabled = true
+log_path = "/tmp/crash.log"
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        // When not specified, should use defaults
+        assert_eq!(config.model.threads, 4);
+        assert_eq!(config.model.beam_size, 5);
     }
 
     #[test]

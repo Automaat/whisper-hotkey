@@ -20,12 +20,23 @@ pub enum TranscriptionError {
 pub struct TranscriptionEngine {
     #[allow(dead_code)] // Used in transcribe() method (Phase 5)
     ctx: Arc<Mutex<WhisperContext>>,
+    threads: usize,
+    beam_size: usize,
 }
 
 impl TranscriptionEngine {
     /// Creates a new TranscriptionEngine by loading the model from the given path
-    pub fn new(model_path: &Path) -> Result<Self, TranscriptionError> {
-        tracing::info!(path = %model_path.display(), "loading whisper model");
+    pub fn new(
+        model_path: &Path,
+        threads: usize,
+        beam_size: usize,
+    ) -> Result<Self, TranscriptionError> {
+        tracing::info!(
+            path = %model_path.display(),
+            threads = threads,
+            beam_size = beam_size,
+            "loading whisper model"
+        );
 
         let path_str = model_path
             .to_str()
@@ -46,13 +57,16 @@ impl TranscriptionEngine {
 
         Ok(Self {
             ctx: Arc::new(Mutex::new(ctx)),
+            threads,
+            beam_size,
         })
     }
 
     /// Transcribes audio samples (16kHz mono f32) to text with language auto-detection
     #[allow(dead_code)] // Used in Phase 5
     pub fn transcribe(&self, audio_data: &[f32]) -> Result<String, TranscriptionError> {
-        tracing::debug!(samples = audio_data.len(), "starting transcription");
+        let _span = tracing::debug_span!("transcription", samples = audio_data.len()).entered();
+        tracing::debug!("starting transcription");
 
         let ctx = self
             .ctx
@@ -64,8 +78,18 @@ impl TranscriptionEngine {
             .create_state()
             .map_err(|_| TranscriptionError::StateCreation)?;
 
-        // Configure transcription parameters with language auto-detection
-        let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
+        // Configure transcription parameters with optimization settings
+        let strategy = if self.beam_size > 1 {
+            SamplingStrategy::BeamSearch {
+                beam_size: self.beam_size as i32,
+                patience: -1.0,
+            }
+        } else {
+            SamplingStrategy::Greedy { best_of: 1 }
+        };
+
+        let mut params = FullParams::new(strategy);
+        params.set_n_threads(self.threads as i32);
         params.set_print_special(false);
         params.set_print_progress(false);
         params.set_print_realtime(false);
@@ -74,9 +98,11 @@ impl TranscriptionEngine {
         params.set_translate(false);
 
         // Run transcription
+        let start = std::time::Instant::now();
         state
             .full(params, audio_data)
             .context("whisper inference failed")?;
+        let inference_duration = start.elapsed();
 
         // Extract text from all segments
         let mut result = String::new();
@@ -90,6 +116,7 @@ impl TranscriptionEngine {
         tracing::info!(
             segments = state.full_n_segments(),
             text_len = result.len(),
+            inference_ms = inference_duration.as_millis(),
             "transcription completed"
         );
 
@@ -128,7 +155,7 @@ mod tests {
     #[test]
     fn test_model_load_nonexistent_path() {
         let nonexistent_path = Path::new("/tmp/nonexistent_model.bin");
-        let result = TranscriptionEngine::new(nonexistent_path);
+        let result = TranscriptionEngine::new(nonexistent_path, 4, 5);
 
         assert!(result.is_err());
         match result {
@@ -152,7 +179,7 @@ mod tests {
             }
         };
 
-        let engine = TranscriptionEngine::new(&model_path);
+        let engine = TranscriptionEngine::new(&model_path, 4, 5);
         assert!(engine.is_ok(), "Failed to load model: {:?}", engine.err());
     }
 
@@ -167,7 +194,7 @@ mod tests {
             }
         };
 
-        let engine = TranscriptionEngine::new(&model_path).unwrap();
+        let engine = TranscriptionEngine::new(&model_path, 4, 5).unwrap();
 
         // 1 second of silence (16kHz)
         let silence: Vec<f32> = vec![0.0; 16000];
@@ -195,7 +222,7 @@ mod tests {
             }
         };
 
-        let engine = TranscriptionEngine::new(&model_path).unwrap();
+        let engine = TranscriptionEngine::new(&model_path, 4, 5).unwrap();
 
         let empty: Vec<f32> = vec![];
 
@@ -218,7 +245,7 @@ mod tests {
             }
         };
 
-        let engine = TranscriptionEngine::new(&model_path).unwrap();
+        let engine = TranscriptionEngine::new(&model_path, 4, 5).unwrap();
 
         // 0.5 seconds of a simple tone (440Hz sine wave)
         let sample_rate = 16000.0;
@@ -251,7 +278,7 @@ mod tests {
             }
         };
 
-        let engine = TranscriptionEngine::new(&model_path).unwrap();
+        let engine = TranscriptionEngine::new(&model_path, 4, 5).unwrap();
 
         // Run multiple transcriptions to verify state management works
         for _ in 0..3 {
@@ -272,7 +299,7 @@ mod tests {
             }
         };
 
-        let engine = TranscriptionEngine::new(&model_path).unwrap();
+        let engine = TranscriptionEngine::new(&model_path, 4, 5).unwrap();
 
         // Test different audio lengths
         let lengths = vec![8000, 16000, 32000, 48000]; // 0.5s, 1s, 2s, 3s
@@ -282,6 +309,86 @@ mod tests {
             let result = engine.transcribe(&audio);
             assert!(result.is_ok(), "Failed to transcribe {} samples", length);
         }
+    }
+
+    #[test]
+    #[ignore] // Requires actual model file
+    fn test_long_recording_30s() {
+        let model_path = match get_test_model_path() {
+            Some(path) => path,
+            None => {
+                eprintln!("Skipping test: no model found");
+                return;
+            }
+        };
+
+        let engine = TranscriptionEngine::new(&model_path, 4, 5).unwrap();
+
+        // 30 seconds of silence (16kHz)
+        let audio: Vec<f32> = vec![0.0; 16000 * 30];
+
+        let result = engine.transcribe(&audio);
+        assert!(result.is_ok(), "Failed to transcribe 30s audio");
+    }
+
+    #[test]
+    #[ignore] // Requires actual model file
+    fn test_optimization_params() {
+        let model_path = match get_test_model_path() {
+            Some(path) => path,
+            None => {
+                eprintln!("Skipping test: no model found");
+                return;
+            }
+        };
+
+        // Test with different optimization params
+        let engine_default = TranscriptionEngine::new(&model_path, 4, 5).unwrap();
+        let engine_fast = TranscriptionEngine::new(&model_path, 8, 1).unwrap();
+        let engine_accurate = TranscriptionEngine::new(&model_path, 4, 10).unwrap();
+
+        let silence: Vec<f32> = vec![0.0; 16000];
+
+        // All should work without errors
+        assert!(engine_default.transcribe(&silence).is_ok());
+        assert!(engine_fast.transcribe(&silence).is_ok());
+        assert!(engine_accurate.transcribe(&silence).is_ok());
+    }
+
+    #[test]
+    #[ignore] // Requires actual model file
+    fn test_transcribe_noise() {
+        let model_path = match get_test_model_path() {
+            Some(path) => path,
+            None => {
+                eprintln!("Skipping test: no model found");
+                return;
+            }
+        };
+
+        let engine = TranscriptionEngine::new(&model_path, 4, 5).unwrap();
+
+        // 2 seconds of random noise (16kHz)
+        use std::collections::hash_map::RandomState;
+        use std::hash::{BuildHasher, Hasher};
+        let hasher = RandomState::new().build_hasher();
+        let seed = hasher.finish();
+
+        let mut rng_state = seed;
+        let mut noise = Vec::with_capacity(32000);
+        for _ in 0..32000 {
+            // Simple LCG for deterministic noise
+            rng_state = rng_state.wrapping_mul(1103515245).wrapping_add(12345);
+            let sample = ((rng_state >> 16) as f32 / 32768.0) - 1.0;
+            noise.push(sample * 0.1); // Low amplitude noise
+        }
+
+        let result = engine.transcribe(&noise);
+        assert!(result.is_ok(), "Failed to transcribe noise");
+
+        // Noise should produce empty or minimal/gibberish output
+        let _text = result.unwrap();
+        // Just verify it doesn't crash - output is unpredictable for noise
     }
 
     #[test]

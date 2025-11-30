@@ -42,7 +42,15 @@ async fn main() -> Result<()> {
     // Preload model if configured
     let transcription_engine = if config.model.preload {
         println!("Loading Whisper model (this may take a few seconds)...");
-        match transcription::TranscriptionEngine::new(&model_path) {
+        println!(
+            "  Optimization: {} threads, beam_size={}",
+            config.model.threads, config.model.beam_size
+        );
+        match transcription::TranscriptionEngine::new(
+            &model_path,
+            config.model.threads,
+            config.model.beam_size,
+        ) {
             Ok(engine) => {
                 println!("✓ Whisper model loaded and ready");
                 tracing::info!("whisper model preloaded successfully");
