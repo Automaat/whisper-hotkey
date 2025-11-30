@@ -54,12 +54,20 @@ impl TrayManager {
         };
 
         let icon_path = format!("{}/{}", env!("CARGO_MANIFEST_DIR"), icon_filename);
+        tracing::debug!("loading icon for state {:?}: {}", state, icon_path);
+
         let image = image::open(&icon_path)
             .with_context(|| format!("failed to load {}", icon_filename))?
             .into_rgba8();
 
         let (width, height) = image.dimensions();
         let rgba = image.into_raw();
+        tracing::debug!(
+            "icon loaded: {}x{}, {} bytes",
+            width,
+            height,
+            rgba.len()
+        );
 
         Icon::from_rgba(rgba, width, height).context("failed to create icon from RGBA data")
     }
@@ -68,16 +76,17 @@ impl TrayManager {
     pub fn update_icon_if_needed(&mut self) -> Result<()> {
         let new_state = *self.state.lock().unwrap();
         if new_state != self.current_icon_state {
-            tracing::debug!(
-                "tray icon state change: {:?} -> {:?}",
+            tracing::info!(
+                "🔄 tray icon state change: {:?} -> {:?}",
                 self.current_icon_state,
                 new_state
             );
             let icon = Self::load_icon(new_state)?;
-            self.tray
-                .set_icon(Some(icon))
-                .context("failed to set tray icon")?;
+            let result = self.tray.set_icon(Some(icon));
+            tracing::info!("✓ tray icon set_icon result: {:?}", result);
+            result.context("failed to set tray icon")?;
             self.current_icon_state = new_state;
+            tracing::info!("✓ tray icon updated to {:?}", new_state);
         }
         Ok(())
     }
