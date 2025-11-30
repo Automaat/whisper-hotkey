@@ -11,27 +11,58 @@ Hold a hotkey, speak, release → text inserted at cursor. Privacy-first (100% l
 ### Prerequisites
 
 - **macOS** (M1/M2 or Intel)
-- **Rust 1.84** (via mise)
+- **Rust/Cargo** (install: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`)
+- **mise** (optional, recommended: `curl https://mise.run | sh`)
 - **Permissions**: Microphone + Accessibility
 
-### 1. Install
+### Installation Options
+
+#### Option 1: Automated Installer (Recommended)
 
 ```bash
 # Clone repo
 git clone https://github.com/Automaat/whisper-hotkey.git
 cd whisper-hotkey
 
-# Install Rust toolchain
+# Run installer (binary mode - installs to /usr/local/bin)
+./scripts/install.sh
+
+# OR .app bundle mode (installs to /Applications)
+./scripts/install.sh app
+```
+
+The installer will:
+
+- Build release binary
+- Install to `/usr/local/bin` or `/Applications`
+- Create config: `~/.whisper-hotkey/config.toml`
+- Optionally setup auto-start at login (LaunchAgent)
+
+**To uninstall:**
+
+```bash
+./scripts/uninstall.sh
+```
+
+#### Option 2: Manual Build & Run
+
+```bash
+# Clone repo
+git clone https://github.com/Automaat/whisper-hotkey.git
+cd whisper-hotkey
+
+# Install Rust toolchain (if using mise)
 mise install
 
 # Build (downloads ~466MB Whisper model on first run)
 mise exec -- cargo build --release
-```
+# OR without mise:
+cargo build --release
 
-### 2. Run
-
-```bash
+# Run
 mise exec -- cargo run --release
+# OR:
+./target/release/whisper-hotkey
 ```
 
 **First run:**
@@ -105,6 +136,44 @@ log_path = "~/.whisper-hotkey/crash.log"
 ```
 
 **After editing**: Restart app (`Ctrl+C`, then `cargo run --release`)
+
+---
+
+## Auto-Start at Login
+
+To run whisper-hotkey automatically when you log in:
+
+```bash
+# Setup LaunchAgent (starts now and at every login)
+./scripts/setup-launchagent.sh
+```
+
+**Manage the service:**
+
+```bash
+# Stop service
+launchctl unload ~/Library/LaunchAgents/com.whisper-hotkey.plist
+
+# Start service
+launchctl load ~/Library/LaunchAgents/com.whisper-hotkey.plist
+
+# Restart service
+launchctl kickstart -k gui/$(id -u)/com.whisper-hotkey
+
+# Check status
+launchctl list | grep whisper-hotkey
+
+# View logs
+tail -f ~/.whisper-hotkey/stdout.log
+tail -f ~/.whisper-hotkey/stderr.log
+```
+
+**To disable auto-start:**
+
+```bash
+launchctl unload ~/Library/LaunchAgents/com.whisper-hotkey.plist
+rm ~/Library/LaunchAgents/com.whisper-hotkey.plist
+```
 
 ---
 
@@ -260,7 +329,7 @@ mise exec -- cargo clippy
 - [x] Phase 5: Text insertion
 - [x] Phase 6: Integration & polish
 - [x] Phase 7: Optimization & testing
-- [ ] Phase 8: Distribution (.app bundle, installer)
+- [x] Phase 8: Distribution (.app bundle, installer)
 
 See [implem-plan.md](implem-plan.md) for detailed implementation plan.
 
