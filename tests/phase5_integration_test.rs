@@ -29,7 +29,7 @@ fn get_test_model_path() -> Option<PathBuf> {
 }
 
 #[test]
-#[ignore] // Requires model file
+#[ignore] // Requires model file and Accessibility permissions with active text input
 fn test_transcribe_silence_to_text_insertion() {
     use whisper_hotkey::input::cgevent;
     use whisper_hotkey::transcription::TranscriptionEngine;
@@ -171,8 +171,8 @@ fn test_long_text_insertion() {
     println!("Focus a text input in 3 seconds...");
     std::thread::sleep(std::time::Duration::from_secs(3));
 
-    // Simulate a long transcription (500 words)
-    let test_text = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. ".repeat(50);
+    // Simulate a long transcription (~500 words)
+    let test_text = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. ".repeat(63);
 
     let result = cgevent::insert_text_safe(&test_text);
     assert!(result, "Long text insertion failed");

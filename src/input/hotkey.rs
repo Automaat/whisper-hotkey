@@ -113,27 +113,42 @@ impl HotkeyManager {
                             warn!("failed to save debug WAV: {}", e);
                         }
 
-                        // Phase 5: Transcription + Text Insertion
+                        // Phase 5: Transcription + Text Insertion (background thread)
                         if let Some(engine) = &self.transcription {
-                            match engine.transcribe(&samples) {
-                                Ok(text) => {
-                                    info!(text_len = text.len(), "transcription successful");
+                            let engine = Arc::clone(engine);
+                            let state_arc = Arc::clone(&self.state);
 
-                                    // Insert text at cursor
-                                    if !cgevent::insert_text_safe(&text) {
-                                        warn!("text insertion failed, check telemetry logs");
+                            std::thread::spawn(move || {
+                                match engine.transcribe(&samples) {
+                                    Ok(text) => {
+                                        info!(text_len = text.len(), "transcription successful");
+
+                                        // Insert text at cursor, only if non-empty
+                                        if !text.is_empty() {
+                                            if !cgevent::insert_text_safe(&text) {
+                                                warn!(
+                                                    "text insertion failed, check telemetry logs"
+                                                );
+                                            }
+                                        } else {
+                                            info!("transcription produced no text");
+                                        }
+                                    }
+                                    Err(e) => {
+                                        warn!("transcription failed: {}", e);
                                     }
                                 }
-                                Err(e) => {
-                                    warn!("transcription failed: {}", e);
-                                }
-                            }
+
+                                // Set state to Idle after processing
+                                let mut state = state_arc.lock().unwrap();
+                                *state = AppState::Idle;
+                                info!("processing complete: Processing → Idle");
+                            });
                         } else {
                             warn!("transcription engine not available (preload disabled?)");
+                            *state = AppState::Idle;
+                            info!("processing complete: Processing → Idle");
                         }
-
-                        *state = AppState::Idle;
-                        info!("processing complete: Processing → Idle");
                     }
                     Err(e) => {
                         warn!("failed to stop recording: {}", e);
