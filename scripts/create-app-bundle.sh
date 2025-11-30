@@ -25,6 +25,16 @@ mkdir -p "$RESOURCES_DIR"
 echo "📋 Copying binary..."
 cp target/release/whisper-hotkey "$MACOS_DIR/$APP_NAME"
 
+echo "🎨 Creating/copying icon..."
+if [ ! -f "resources/AppIcon.icns" ]; then
+    ./scripts/create-icon.sh
+fi
+if [ ! -f "resources/AppIcon.icns" ]; then
+    echo "❌ Error: Icon file resources/AppIcon.icns not found after attempting to create it."
+    exit 1
+fi
+cp resources/AppIcon.icns "$RESOURCES_DIR/"
+
 echo "📋 Copying Info.plist..."
 cat > "$CONTENTS_DIR/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -61,6 +71,9 @@ cat > "$CONTENTS_DIR/Info.plist" <<EOF
     <key>LSUIElement</key>
     <true/>
 
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+
     <key>NSMicrophoneUsageDescription</key>
     <string>Required to capture voice for transcription</string>
 
@@ -70,13 +83,16 @@ cat > "$CONTENTS_DIR/Info.plist" <<EOF
 </plist>
 EOF
 
+echo "🔏 Ad-hoc code signing..."
+if ! codesign --force --deep --sign - "$BUNDLE_DIR"; then
+    echo "⚠️  codesign failed. The bundle may be invalid or your system may not support ad-hoc signing."
+    echo "You can still try to run the app, but macOS may refuse to launch it or show a warning."
+fi
+
 echo "✅ .app bundle created: $BUNDLE_DIR"
 echo ""
 echo "To install:"
 echo "  cp -r $BUNDLE_DIR /Applications/"
-echo ""
-echo "To sign (optional):"
-echo "  codesign --force --deep --sign - $BUNDLE_DIR"
 echo ""
 echo "To run:"
 echo "  open $BUNDLE_DIR"

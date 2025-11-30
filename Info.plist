@@ -16,5 +16,7 @@
     <string>Whisper Hotkey needs accessibility access to capture global hotkeys and insert transcribed text.</string>
     <key>LSUIElement</key>
     <true/>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
 </dict>
 </plist>
