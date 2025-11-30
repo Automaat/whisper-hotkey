@@ -19,7 +19,7 @@ pub struct AudioCapture {
 }
 
 impl AudioCapture {
-    pub fn new(config: &AudioConfig) -> Result<Self> {
+    pub fn new(_config: &AudioConfig) -> Result<Self> {
         info!("initializing audio capture");
 
         // Get default input device
@@ -44,8 +44,15 @@ impl AudioCapture {
             device_sample_rate, device_channels
         );
 
-        // Create ring buffer (buffer_size * 4 for safety margin)
-        let ring_buffer_capacity = config.buffer_size * 4;
+        // Create ring buffer sized for max recording duration (30s at device sample rate)
+        // This ensures no samples are dropped during recording
+        let max_recording_secs = 30;
+        let ring_buffer_capacity =
+            (device_sample_rate as usize) * (device_channels as usize) * max_recording_secs;
+        info!(
+            "ring buffer capacity: {} samples ({} seconds at {} Hz)",
+            ring_buffer_capacity, max_recording_secs, device_sample_rate
+        );
         let ring_buffer = HeapRb::<f32>::new(ring_buffer_capacity);
         let (ring_buffer_producer, ring_buffer_consumer) = ring_buffer.split();
 
@@ -89,6 +96,8 @@ impl AudioCapture {
     }
 
     pub fn start_recording(&mut self) -> Result<()> {
+        let _span = tracing::debug_span!("start_recording").entered();
+        let start = std::time::Instant::now();
         debug!("starting recording");
 
         // Clear ring buffer
@@ -97,34 +106,52 @@ impl AudioCapture {
         // Set recording flag
         self.is_recording.store(true, Ordering::Relaxed);
 
-        info!("recording started");
+        let duration = start.elapsed();
+        info!(latency_us = duration.as_micros(), "recording started");
         Ok(())
     }
 
     pub fn stop_recording(&mut self) -> Result<Vec<f32>> {
+        let _span = tracing::debug_span!("stop_recording").entered();
+        let start_total = std::time::Instant::now();
         debug!("stopping recording");
 
         // Clear recording flag
         self.is_recording.store(false, Ordering::Relaxed);
 
         // Drain ring buffer into Vec
+        let start_drain = std::time::Instant::now();
         let mut samples = Vec::new();
         while let Some(sample) = self.ring_buffer_consumer.try_pop() {
             samples.push(sample);
         }
+        let drain_duration = start_drain.elapsed();
 
-        info!("recorded {} samples", samples.len());
+        info!(
+            samples = samples.len(),
+            drain_us = drain_duration.as_micros(),
+            "ring buffer drained"
+        );
 
         // Convert to 16kHz mono
         let samples_16khz_mono = self.convert_to_16khz_mono(&samples)?;
+
+        let total_duration = start_total.elapsed();
+        info!(
+            total_ms = total_duration.as_millis(),
+            "stop_recording complete"
+        );
 
         Ok(samples_16khz_mono)
     }
 
     fn convert_to_16khz_mono(&self, samples: &[f32]) -> Result<Vec<f32>> {
+        let _span = tracing::debug_span!("convert_to_16khz_mono").entered();
+        let start_total = std::time::Instant::now();
         let target_sample_rate = 16000;
 
         // Convert stereo to mono if needed
+        let start_downmix = std::time::Instant::now();
         let mono_samples = if self.device_channels == 1 {
             samples.to_vec()
         } else {
@@ -134,6 +161,15 @@ impl AudioCapture {
                 .map(|frame| frame.iter().sum::<f32>() / frame.len() as f32)
                 .collect()
         };
+        let downmix_duration = start_downmix.elapsed();
+
+        if self.device_channels > 1 {
+            debug!(
+                channels = self.device_channels,
+                downmix_us = downmix_duration.as_micros(),
+                "stereo to mono conversion"
+            );
+        }
 
         // Resample if needed
         if self.device_sample_rate == target_sample_rate {
@@ -141,6 +177,7 @@ impl AudioCapture {
         }
 
         // Simple linear interpolation resampling
+        let start_resample = std::time::Instant::now();
         let ratio = self.device_sample_rate as f64 / target_sample_rate as f64;
         let output_len = (mono_samples.len() as f64 / ratio).ceil() as usize;
 
@@ -161,12 +198,17 @@ impl AudioCapture {
 
             resampled.push(sample);
         }
+        let resample_duration = start_resample.elapsed();
 
+        let total_duration = start_total.elapsed();
         info!(
-            "resampled {} Hz → 16000 Hz ({} → {} samples)",
-            self.device_sample_rate,
-            mono_samples.len(),
-            resampled.len()
+            from_hz = self.device_sample_rate,
+            to_hz = target_sample_rate,
+            from_samples = mono_samples.len(),
+            to_samples = resampled.len(),
+            resample_us = resample_duration.as_micros(),
+            total_us = total_duration.as_micros(),
+            "resampling complete"
         );
 
         Ok(resampled)

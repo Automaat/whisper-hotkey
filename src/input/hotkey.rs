@@ -67,12 +67,12 @@ impl HotkeyManager {
         let mut state = self.state.lock().unwrap();
         match *state {
             AppState::Idle => {
-                info!("hotkey pressed: Idle → Recording");
+                info!("🎤 Hotkey pressed - recording started");
                 *state = AppState::Recording;
 
                 // Start audio recording with error recovery
                 if let Err(e) = self.audio.lock().unwrap().start_recording() {
-                    warn!(error = %e, "failed to start recording, returning to Idle");
+                    warn!(error = %e, "❌ Failed to start recording");
                     *state = AppState::Idle;
                     // Continue running - this is a transient error, user can try again
                 }
@@ -91,13 +91,20 @@ impl HotkeyManager {
         let mut state = self.state.lock().unwrap();
         match *state {
             AppState::Recording => {
-                info!("hotkey released: Recording → Processing");
+                info!("⏹️  Hotkey released - processing audio");
                 *state = AppState::Processing;
 
                 // Stop audio recording and get samples
                 match self.audio.lock().unwrap().stop_recording() {
                     Ok(samples) => {
-                        info!(sample_count = samples.len(), "captured audio (16kHz mono)");
+                        let duration_secs = samples.len() as f32 / 16000.0;
+                        info!(
+                            sample_count = samples.len(),
+                            duration_secs = format!("{:.1}", duration_secs),
+                            "📼 Captured {:.1}s audio ({} samples)",
+                            duration_secs,
+                            samples.len()
+                        );
 
                         // Save WAV debug file with error recovery
                         let timestamp = std::time::SystemTime::now()
@@ -128,7 +135,9 @@ impl HotkeyManager {
                                         info!(
                                             text_len = text.len(),
                                             text_preview = %text_preview,
-                                            "transcription successful"
+                                            "✨ Transcription: \"{}{}\"",
+                                            text_preview,
+                                            if text.len() > 50 { "..." } else { "" }
                                         );
 
                                         // Insert text at cursor, only if non-empty
@@ -137,25 +146,25 @@ impl HotkeyManager {
                                                 warn!(
                                                     text_len = text.len(),
                                                     text_preview = %text_preview,
-                                                    "text insertion failed, check telemetry logs"
+                                                    "❌ Text insertion failed - check permissions"
                                                 );
                                             } else {
                                                 info!(
                                                     text_len = text.len(),
-                                                    "text inserted successfully"
+                                                    "✅ Inserted {} chars",
+                                                    text.len()
                                                 );
                                             }
                                         } else {
-                                            info!(
-                                                "transcription produced no text (silence or noise)"
-                                            );
+                                            info!("🔇 No speech detected (silence or noise)");
                                         }
                                     }
                                     Err(e) => {
                                         warn!(
                                             error = %e,
                                             sample_count = samples.len(),
-                                            "transcription failed"
+                                            "❌ Transcription failed: {}",
+                                            e
                                         );
                                     }
                                 }
@@ -163,18 +172,16 @@ impl HotkeyManager {
                                 // Set state to Idle after processing (always recover)
                                 let mut state = state_arc.lock().unwrap();
                                 *state = AppState::Idle;
-                                info!("processing complete: Processing → Idle");
+                                info!("✓ Ready for next recording");
                             });
                         } else {
-                            warn!(
-                                "transcription engine not available (preload disabled or failed)"
-                            );
+                            warn!("⚠️  Transcription engine not available");
                             *state = AppState::Idle;
-                            info!("processing complete: Processing → Idle (no transcription)");
+                            info!("✓ Ready for next recording (transcription disabled)");
                         }
                     }
                     Err(e) => {
-                        warn!(error = %e, "failed to stop recording, returning to Idle");
+                        warn!(error = %e, "❌ Failed to stop recording: {}", e);
                         *state = AppState::Idle;
                         // Continue running - this is a transient error, user can try again
                     }

@@ -43,7 +43,7 @@ fn test_transcribe_silence_to_text_insertion() {
     };
 
     // Load transcription engine
-    let engine = TranscriptionEngine::new(&model_path).expect("failed to load model");
+    let engine = TranscriptionEngine::new(&model_path, 4, 5, None).expect("failed to load model");
 
     // 1 second of silence
     let silence: Vec<f32> = vec![0.0; 16000];
@@ -78,7 +78,7 @@ fn test_full_pipeline_with_tone() {
         }
     };
 
-    let engine = TranscriptionEngine::new(&model_path).expect("failed to load model");
+    let engine = TranscriptionEngine::new(&model_path, 4, 5, None).expect("failed to load model");
 
     // 1 second of 440Hz tone
     let sample_rate = 16000.0;
@@ -209,7 +209,7 @@ fn test_transcription_performance() {
         }
     };
 
-    let engine = TranscriptionEngine::new(&model_path).expect("failed to load model");
+    let engine = TranscriptionEngine::new(&model_path, 4, 5, None).expect("failed to load model");
 
     // Test different audio lengths
     let test_cases = vec![
@@ -251,7 +251,8 @@ fn test_concurrent_transcriptions() {
         }
     };
 
-    let engine = Arc::new(TranscriptionEngine::new(&model_path).expect("failed to load model"));
+    let engine =
+        Arc::new(TranscriptionEngine::new(&model_path, 4, 5, None).expect("failed to load model"));
 
     // Verify TranscriptionEngine is thread-safe by running concurrent transcriptions
     let mut handles = vec![];

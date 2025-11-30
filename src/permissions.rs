@@ -11,7 +11,7 @@ pub fn check_microphone_permission() -> Result<()> {
     Ok(())
 }
 
-/// Check and request accessibility permission (for hotkey and text insertion)
+/// Check and request accessibility permission (for text insertion)
 pub fn check_accessibility_permission() -> Result<()> {
     tracing::info!("checking accessibility permission");
 
@@ -32,13 +32,34 @@ pub fn check_accessibility_permission() -> Result<()> {
     Ok(())
 }
 
+/// Check Input Monitoring permission (for global hotkeys)
+pub fn check_input_monitoring_permission() -> Result<()> {
+    tracing::info!("checking input monitoring permission");
+
+    #[cfg(target_os = "macos")]
+    {
+        // macOS requires Input Monitoring permission for global hotkeys
+        // There's no direct API to check this, so we warn the user
+        tracing::warn!("input monitoring permission required for global hotkeys");
+        tracing::warn!("if hotkeys don't work, enable in System Settings > Privacy & Security > Input Monitoring");
+
+        println!("⚠️  Input Monitoring permission required:");
+        println!("   If hotkeys don't work, go to:");
+        println!("   System Settings → Privacy & Security → Input Monitoring");
+        println!("   Add and enable your terminal app (Terminal/iTerm2/WezTerm/etc)\n");
+    }
+
+    Ok(())
+}
+
 /// Request all required permissions
 pub fn request_all_permissions() -> Result<()> {
     tracing::info!("requesting all permissions");
 
     check_microphone_permission()?;
     check_accessibility_permission()?;
+    check_input_monitoring_permission()?;
 
-    tracing::info!("all permissions OK");
+    tracing::info!("all permissions checked");
     Ok(())
 }
