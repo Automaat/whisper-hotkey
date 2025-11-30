@@ -1,9 +1,9 @@
 use anyhow::{Context, Result};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Config {
     #[allow(dead_code)] // Used in Phase 2+
     pub hotkey: HotkeyConfig,
@@ -14,7 +14,7 @@ pub struct Config {
     pub telemetry: TelemetryConfig,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct HotkeyConfig {
     #[allow(dead_code)] // Used in Phase 2
     pub modifiers: Vec<String>,
@@ -22,7 +22,7 @@ pub struct HotkeyConfig {
     pub key: String,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct AudioConfig {
     #[allow(dead_code)] // Used in Phase 3
     pub buffer_size: usize,
@@ -30,7 +30,7 @@ pub struct AudioConfig {
     pub sample_rate: u32,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ModelConfig {
     #[allow(dead_code)] // Used in Phase 4
     pub name: String,
@@ -58,7 +58,7 @@ fn default_language() -> Option<String> {
     None // Auto-detect by default
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct TelemetryConfig {
     pub enabled: bool,
     pub log_path: String,
@@ -108,6 +108,20 @@ log_path = "~/.whisper-hotkey/crash.log"
 "#;
         fs::write(path, default_config).context("failed to write default config")?;
         Ok(())
+    }
+
+    /// Save config to ~/.whisper-hotkey.toml
+    pub fn save(&self) -> Result<()> {
+        let config_path = Self::config_path()?;
+        let contents =
+            toml::to_string_pretty(self).context("failed to serialize config to TOML")?;
+        fs::write(&config_path, contents).context("failed to write config file")?;
+        Ok(())
+    }
+
+    /// Get config file path for external opening
+    pub fn get_config_path() -> Result<PathBuf> {
+        Self::config_path()
     }
 
     /// Expand ~ in paths to home directory
@@ -278,5 +292,74 @@ log_path = "/tmp/crash.log"
     fn test_load_reads_existing_config() {
         // This test would require creating a temp config file
         // Skip for now as it's integration-level testing
+    }
+
+    #[test]
+    fn test_config_serialize() {
+        let config = Config {
+            hotkey: HotkeyConfig {
+                modifiers: vec!["Control".to_string(), "Option".to_string()],
+                key: "Z".to_string(),
+            },
+            audio: AudioConfig {
+                buffer_size: 1024,
+                sample_rate: 16000,
+            },
+            model: ModelConfig {
+                name: "small".to_string(),
+                path: "~/.whisper-hotkey/models/ggml-small.bin".to_string(),
+                preload: true,
+                threads: 4,
+                beam_size: 5,
+                language: None,
+            },
+            telemetry: TelemetryConfig {
+                enabled: true,
+                log_path: "~/.whisper-hotkey/crash.log".to_string(),
+            },
+        };
+
+        let serialized = toml::to_string(&config).unwrap();
+        assert!(serialized.contains("modifiers"));
+        assert!(serialized.contains("Control"));
+        assert!(serialized.contains("buffer_size"));
+        assert!(serialized.contains("small"));
+    }
+
+    #[test]
+    fn test_config_roundtrip() {
+        let original = Config {
+            hotkey: HotkeyConfig {
+                modifiers: vec!["Command".to_string()],
+                key: "V".to_string(),
+            },
+            audio: AudioConfig {
+                buffer_size: 2048,
+                sample_rate: 16000,
+            },
+            model: ModelConfig {
+                name: "base".to_string(),
+                path: "/tmp/model.bin".to_string(),
+                preload: false,
+                threads: 8,
+                beam_size: 10,
+                language: Some("pl".to_string()),
+            },
+            telemetry: TelemetryConfig {
+                enabled: false,
+                log_path: "/tmp/log.txt".to_string(),
+            },
+        };
+
+        let serialized = toml::to_string(&original).unwrap();
+        let deserialized: Config = toml::from_str(&serialized).unwrap();
+
+        assert_eq!(deserialized.hotkey.modifiers, original.hotkey.modifiers);
+        assert_eq!(deserialized.hotkey.key, original.hotkey.key);
+        assert_eq!(deserialized.audio.buffer_size, original.audio.buffer_size);
+        assert_eq!(deserialized.model.name, original.model.name);
+        assert_eq!(deserialized.model.threads, original.model.threads);
+        assert_eq!(deserialized.model.language, original.model.language);
+        assert_eq!(deserialized.telemetry.enabled, original.telemetry.enabled);
     }
 }
