@@ -8,30 +8,81 @@ Hold a hotkey, speak, release → text inserted at cursor. Privacy-first (100% l
 
 ## Quick Start
 
-### Prerequisites
+### Option 1: Download DMG (Easiest)
+
+**For end users - no build tools required:**
+
+1. **Download**: [Latest release](https://github.com/Automaat/whisper-hotkey/releases/latest) → `WhisperHotkey-*.dmg`
+2. **Install**: Open DMG, drag `WhisperHotkey.app` to `Applications`
+3. **Run**: Open from Applications
+4. **Permissions**: Grant Microphone + Accessibility when prompted
+5. **First run**: Downloads Whisper model (~466MB)
+
+**Usage:**
+
+- Default hotkey: `Ctrl+Option+Z`
+- Press and hold → speak → release
+- Text appears at cursor
+
+**Configuration:** `~/.whisper-hotkey/config.toml`
+
+---
+
+### Option 2: Build from Source
+
+**Prerequisites:**
 
 - **macOS** (M1/M2 or Intel)
-- **Rust 1.84** (via mise)
+- **Rust/Cargo** (install: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`)
+- **mise** (optional, recommended: `curl https://mise.run | sh`)
 - **Permissions**: Microphone + Accessibility
 
-### 1. Install
+#### 2a: Automated Installer
 
 ```bash
 # Clone repo
 git clone https://github.com/Automaat/whisper-hotkey.git
 cd whisper-hotkey
 
-# Install Rust toolchain
+# Run installer (binary mode - installs to /usr/local/bin)
+./scripts/install.sh
+
+# OR .app bundle mode (installs to /Applications)
+./scripts/install.sh app
+```
+
+The installer will:
+
+- Build release binary
+- Install to `/usr/local/bin` or `/Applications`
+- Create config: `~/.whisper-hotkey/config.toml`
+- Optionally setup auto-start at login (LaunchAgent)
+
+**To uninstall:**
+
+```bash
+./scripts/uninstall.sh
+```
+
+#### 2b: Manual Build & Run
+
+```bash
+# Clone repo
+git clone https://github.com/Automaat/whisper-hotkey.git
+cd whisper-hotkey
+
+# Install Rust toolchain (if using mise)
 mise install
 
 # Build (downloads ~466MB Whisper model on first run)
 mise exec -- cargo build --release
-```
+# OR without mise:
+cargo build --release
 
-### 2. Run
-
-```bash
+# Run
 mise exec -- cargo run --release
+# OR:
+./target/release/whisper-hotkey
 ```
 
 **First run:**
@@ -108,6 +159,44 @@ log_path = "~/.whisper-hotkey/crash.log"
 
 ---
 
+## Auto-Start at Login
+
+To run whisper-hotkey automatically when you log in:
+
+```bash
+# Setup LaunchAgent (starts now and at every login)
+./scripts/setup-launchagent.sh
+```
+
+**Manage the service:**
+
+```bash
+# Stop service
+launchctl unload ~/Library/LaunchAgents/com.whisper-hotkey.plist
+
+# Start service
+launchctl load ~/Library/LaunchAgents/com.whisper-hotkey.plist
+
+# Restart service
+launchctl kickstart -k gui/$(id -u)/com.whisper-hotkey
+
+# Check status
+launchctl list | grep whisper-hotkey
+
+# View logs
+tail -f ~/.whisper-hotkey/stdout.log
+tail -f ~/.whisper-hotkey/stderr.log
+```
+
+**To disable auto-start:**
+
+```bash
+launchctl unload ~/Library/LaunchAgents/com.whisper-hotkey.plist
+rm ~/Library/LaunchAgents/com.whisper-hotkey.plist
+```
+
+---
+
 ## Performance Tuning
 
 ### Fast Mode (sacrifice accuracy)
@@ -161,6 +250,42 @@ App auto-downloads model on next run.
 ### Model download fails
 - Manual download from [Hugging Face](https://huggingface.co/ggerganov/whisper.cpp)
 - Place in: `~/.whisper-hotkey/models/ggml-{name}.bin`
+
+---
+
+## Creating Releases
+
+**For maintainers:**
+
+```bash
+# Auto-increment minor version (0.0.0 → 0.1.0)
+./scripts/create-release.sh
+
+# Specific version
+./scripts/create-release.sh 0.1.0
+
+# Or manually via GitHub CLI
+gh workflow run release.yml              # Auto-increment
+gh workflow run release.yml -f version=0.1.0  # Specific version
+```
+
+The release workflow:
+
+1. Creates and pushes git tag (e.g., `v0.1.0`)
+2. Builds release binary with optimizations
+3. Creates .app bundle and DMG
+4. Generates SHA256 checksum
+5. Publishes GitHub release with artifacts
+
+**Monitor release:**
+
+```bash
+gh run watch
+# OR
+gh run list --workflow=release.yml
+```
+
+Releases appear at: [GitHub Releases](https://github.com/Automaat/whisper-hotkey/releases)
 
 ---
 
@@ -260,7 +385,7 @@ mise exec -- cargo clippy
 - [x] Phase 5: Text insertion
 - [x] Phase 6: Integration & polish
 - [x] Phase 7: Optimization & testing
-- [ ] Phase 8: Distribution (.app bundle, installer)
+- [x] Phase 8: Distribution (.app bundle, installer)
 
 See [implem-plan.md](implem-plan.md) for detailed implementation plan.
 
