@@ -46,6 +46,8 @@ jobs:
         with:
           path: target
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+      - name: Install clippy
+        run: rustup component add clippy
       - name: Run clippy
         run: mise exec -- cargo clippy --all-targets --all-features -- -D warnings
         env:
