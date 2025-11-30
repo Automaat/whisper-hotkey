@@ -51,9 +51,12 @@ async fn main() -> Result<()> {
     let audio_capture = Arc::new(Mutex::new(audio_capture));
     println!("✓ Audio capture initialized");
 
-    // Phase 2: Global hotkey
-    let hotkey_manager =
-        input::hotkey::HotkeyManager::new(&config.hotkey, Arc::clone(&audio_capture))?;
+    // Phase 2: Global hotkey (with Phase 5 transcription integration)
+    let hotkey_manager = input::hotkey::HotkeyManager::new(
+        &config.hotkey,
+        Arc::clone(&audio_capture),
+        transcription_engine.clone(),
+    )?;
     println!(
         "✓ Hotkey registered: {:?} + {}",
         config.hotkey.modifiers, config.hotkey.key
@@ -61,9 +64,11 @@ async fn main() -> Result<()> {
 
     // Main event loop
     tracing::info!("event loop starting (press Ctrl+C to exit)");
-    println!("\nWhisper Hotkey is running. Press the hotkey to test state transitions.");
+    println!("\nWhisper Hotkey is running. Press the hotkey to record and transcribe.");
     if transcription_engine.is_some() {
-        println!("Transcription engine ready (integration in Phase 5).");
+        println!("✓ Full pipeline ready: hotkey → audio → transcription → text insertion");
+    } else {
+        println!("⚠ Transcription disabled (preload = false in config)");
     }
     println!("Press Ctrl+C to exit.\n");
 
