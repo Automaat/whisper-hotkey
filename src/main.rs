@@ -195,9 +195,9 @@ async fn main() -> Result<()> {
             hotkey_manager.handle_event(event);
         }
 
-        // Update tray icon based on app state
-        if let Err(e) = tray_manager.update_icon_if_needed() {
-            tracing::warn!(error = %e, "failed to update tray icon");
+        // Update tray menu/icon based on app state
+        if let Err(e) = tray_manager.update_icon_if_needed(&config) {
+            tracing::warn!(error = %e, "failed to update tray");
         }
 
         // Poll for tray menu events

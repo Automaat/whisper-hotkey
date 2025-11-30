@@ -29,7 +29,7 @@ pub struct TrayManager {
 impl TrayManager {
     pub fn new(config: &Config, state: Arc<Mutex<AppState>>) -> Result<Self> {
         let icon = Self::load_icon(AppState::Idle)?;
-        let menu = Self::build_menu(config)?;
+        let menu = Self::build_menu(config, Some(AppState::Idle))?;
 
         let tray = TrayIconBuilder::new()
             .with_menu(Box::new(menu))
@@ -72,39 +72,44 @@ impl TrayManager {
         Icon::from_rgba(rgba, width, height).context("failed to create icon from RGBA data")
     }
 
-    /// Update icon if state changed
-    pub fn update_icon_if_needed(&mut self) -> Result<()> {
+    /// Update icon and menu if state changed
+    pub fn update_icon_if_needed(&mut self, config: &Config) -> Result<()> {
         let new_state = *self.state.lock().unwrap();
         if new_state != self.current_icon_state {
             tracing::info!(
-                "🔄 tray icon state change: {:?} -> {:?}",
+                "🔄 tray state change: {:?} -> {:?}",
                 self.current_icon_state,
                 new_state
             );
 
-            // Update tooltip text (visible feedback since icon updates don't work on macOS)
-            let tooltip = match new_state {
-                AppState::Idle => "Whisper Hotkey - Ready",
-                AppState::Recording => "Whisper Hotkey - 🎤 Recording...",
-                AppState::Processing => "Whisper Hotkey - ⏳ Transcribing...",
-            };
-            self.tray.set_tooltip(Some(tooltip));
+            // Rebuild menu with new state (reliable feedback)
+            let new_menu = Self::build_menu(config, Some(new_state))?;
+            self.tray.set_menu(Some(Box::new(new_menu)));
 
             // Try icon update (has known macOS bug but keep trying)
             let icon = Self::load_icon(new_state)?;
             self.tray.set_icon(Some(icon)).ok();
 
             self.current_icon_state = new_state;
-            tracing::info!("✓ tray updated: tooltip={:?}", tooltip);
+            tracing::info!("✓ tray menu updated with state: {:?}", new_state);
         }
         Ok(())
     }
 
-    fn build_menu(config: &Config) -> Result<Menu> {
+    fn build_menu(config: &Config, app_state: Option<AppState>) -> Result<Menu> {
         let menu = Menu::new();
 
-        // Status item (non-clickable)
-        let status = MenuItem::new("Whisper Hotkey", false, None);
+        // Status item showing current state (non-clickable)
+        let status_text = if let Some(state) = app_state {
+            match state {
+                AppState::Idle => "Whisper Hotkey - Ready",
+                AppState::Recording => "🎤 Recording...",
+                AppState::Processing => "⏳ Transcribing...",
+            }
+        } else {
+            "Whisper Hotkey"
+        };
+        let status = MenuItem::new(status_text, false, None);
         menu.append(&status)
             .context("failed to append status item")?;
         menu.append(&PredefinedMenuItem::separator())
@@ -272,7 +277,8 @@ impl TrayManager {
     }
 
     pub fn update_menu(&mut self, config: &Config) -> Result<()> {
-        let new_menu = Self::build_menu(config)?;
+        let current_state = *self.state.lock().unwrap();
+        let new_menu = Self::build_menu(config, Some(current_state))?;
         self.tray.set_menu(Some(Box::new(new_menu)));
         Ok(())
     }
