@@ -253,6 +253,42 @@ App auto-downloads model on next run.
 
 ---
 
+## Creating Releases
+
+**For maintainers:**
+
+```bash
+# Auto-increment minor version (0.0.0 → 0.1.0)
+./scripts/create-release.sh
+
+# Specific version
+./scripts/create-release.sh 0.1.0
+
+# Or manually via GitHub CLI
+gh workflow run release.yml              # Auto-increment
+gh workflow run release.yml -f version=0.1.0  # Specific version
+```
+
+The release workflow:
+
+1. Creates and pushes git tag (e.g., `v0.1.0`)
+2. Builds release binary with optimizations
+3. Creates .app bundle and DMG
+4. Generates SHA256 checksum
+5. Publishes GitHub release with artifacts
+
+**Monitor release:**
+
+```bash
+gh run watch
+# OR
+gh run list --workflow=release.yml
+```
+
+Releases appear at: [GitHub Releases](https://github.com/Automaat/whisper-hotkey/releases)
+
+---
+
 ## Development
 
 ### Run tests

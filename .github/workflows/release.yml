@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version (e.g., 0.1.0). Leave empty to auto-increment minor version.'
+        required: false
+        type: string
 
 env:
   RUST_VERSION: "1.91"
@@ -16,10 +22,50 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0  # Full history for tag detection
 
       - uses: jdx/mise-action@146a28175021df8ca24f8ee1828cc2a60f980bd5 # v3.5.1
         with:
           version: 2025.11.11
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            # Tag push - extract from ref
+            VERSION="${GITHUB_REF#refs/tags/v}"
+            echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+            echo "TAG_NAME=v$VERSION" >> $GITHUB_OUTPUT
+          elif [ -n "${{ inputs.version }}" ]; then
+            # Manual trigger with version
+            VERSION="${{ inputs.version }}"
+            echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+            echo "TAG_NAME=v$VERSION" >> $GITHUB_OUTPUT
+          else
+            # Auto-increment minor version
+            LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+            LATEST_VERSION="${LATEST_TAG#v}"
+
+            # Parse version (semver: MAJOR.MINOR.PATCH)
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$LATEST_VERSION"
+
+            # Increment minor, reset patch
+            NEW_MINOR=$((MINOR + 1))
+            NEW_VERSION="$MAJOR.$NEW_MINOR.0"
+
+            echo "VERSION=$NEW_VERSION" >> $GITHUB_OUTPUT
+            echo "TAG_NAME=v$NEW_VERSION" >> $GITHUB_OUTPUT
+            echo "Previous: $LATEST_TAG → New: v$NEW_VERSION"
+          fi
+
+      - name: Create and push tag
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "${{ steps.version.outputs.TAG_NAME }}" -m "Release ${{ steps.version.outputs.TAG_NAME }}"
+          git push origin "${{ steps.version.outputs.TAG_NAME }}"
 
       - name: Cache cargo registry
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
@@ -38,10 +84,6 @@ jobs:
         with:
           path: target
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Extract version from tag
-        id: version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
       - name: Build release binary
         run: mise exec -- cargo build --release
@@ -119,6 +161,7 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@e7a8f85e1c67a31e6ed99a94b41bd0b71bbee6b8 # v2.2.0
         with:
+          tag_name: ${{ steps.version.outputs.TAG_NAME }}
           files: |
             target/release/WhisperHotkey-${{ steps.version.outputs.VERSION }}.dmg
             target/release/WhisperHotkey-${{ steps.version.outputs.VERSION }}.dmg.sha256
