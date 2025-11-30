@@ -4,6 +4,7 @@ set -euo pipefail
 # Create DMG installer for whisper-hotkey with visual drag-to-Applications interface
 
 APP_NAME="WhisperHotkey"
+DISPLAY_NAME="Whisper Hotkey"  # Display name with space for DMG volume
 VERSION="${1:-1.0.0}"
 BUNDLE_DIR="target/release/$APP_NAME.app"
 DMG_NAME="WhisperHotkey-$VERSION.dmg"
@@ -60,12 +61,40 @@ else
         ./scripts/create-dmg-background.sh
     fi
 
+    # Check if background was created successfully
+    if [ ! -f "$BACKGROUND_DIR/background.png" ]; then
+        echo "⚠️  Failed to create DMG background image. Falling back to basic DMG creation..."
+        USE_BASIC=true
+    fi
+fi
+
+if [ "$USE_BASIC" = true ]; then
+    # Basic DMG creation (fallback)
+    mkdir -p "$DMG_TEMP"
+
+    echo "📋 Copying app bundle..."
+    cp -r "$BUNDLE_DIR" "$DMG_TEMP/"
+
+    echo "🔗 Creating Applications symlink..."
+    ln -s /Applications "$DMG_TEMP/Applications"
+
+    echo "💿 Creating DMG..."
+    # Use hdiutil to create DMG (built into macOS)
+    hdiutil create -volname "$APP_NAME" \
+        -srcfolder "$DMG_TEMP" \
+        -ov -format UDZO \
+        "$DMG_PATH"
+
+    # Clean up temp
+    rm -rf "$DMG_TEMP"
+
+else
     mkdir -p "$DMG_TEMP"
     cp -r "$BUNDLE_DIR" "$DMG_TEMP/"
 
     # Create DMG with visual installer
     create-dmg \
-        --volname "Whisper Hotkey" \
+        --volname "$DISPLAY_NAME" \
         --volicon "resources/AppIcon.icns" \
         --background "$BACKGROUND_DIR/background.png" \
         --window-pos 200 120 \

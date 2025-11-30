@@ -7,11 +7,17 @@ BG_DIR="resources/dmg"
 BG_FILE="$BG_DIR/background.png"
 BG_2X="$BG_DIR/background@2x.png"
 WIDTH=660
-HEIGHT=400
+HEIGHT=420
 
 mkdir -p "$BG_DIR"
 
 echo "🎨 Creating DMG background..."
+
+# Check for PIL/Pillow
+if ! python3 -c "import PIL" 2>/dev/null; then
+    echo "❌ Error: PIL/Pillow not installed. Install with: pip3 install Pillow"
+    exit 1
+fi
 
 # Create background with Python PIL
 python3 <<PYTHON
@@ -23,8 +29,8 @@ def create_background(width, height, scale=1):
     img = Image.new('RGB', (width, height), color='#ffffff')
     draw = ImageDraw.Draw(img)
 
-    # Arrow parameters (centered between app icon at 180 and Applications at 480)
-    arrow_y = int(170 * scale)
+    # Arrow parameters (aligned with icon center at y=190)
+    arrow_y = int(190 * scale)
     arrow_start_x = int(340 * scale)
     arrow_end_x = int(440 * scale)
     arrow_width = int(3 * scale)

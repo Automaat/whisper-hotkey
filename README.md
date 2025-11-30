@@ -1,6 +1,6 @@
 # whisper-hotkey
 
-![Whisper Hotkey](resources/logo.png)
+![Whisper Hotkey logo](resources/logo.png)
 
 macOS background app for system-wide voice-to-text via hotkey using local Whisper.
 

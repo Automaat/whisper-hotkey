@@ -120,7 +120,7 @@ jobs:
           1. **Download**: `WhisperHotkey-${{ steps.version.outputs.VERSION }}.dmg`
           2. **Open DMG**: Double-click to mount
           3. **Install**: Drag `WhisperHotkey.app` to `Applications` folder
-          4. **Bypass Gatekeeper** (first time only):
+          4. **Bypass Gatekeeper** (first time only - required because app is ad-hoc signed, not notarized with Apple Developer certificate):
              - Right-click `WhisperHotkey.app` in Applications
              - Select "Open"
              - Click "Open" in security dialog

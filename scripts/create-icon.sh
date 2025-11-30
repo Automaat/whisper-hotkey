@@ -30,6 +30,9 @@ for size in 16 32 128 256 512; do
     sips -z $size2 $size2 "$ICONSET/base.png" --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null
 done
 
+# Add 1024x1024 icon (icon_512x512@2x.png)
+sips -z 1024 1024 "$ICONSET/base.png" --out "$ICONSET/icon_512x512@2x.png" >/dev/null
+
 # Create .icns file
 iconutil -c icns "$ICONSET" -o "$ICNS"
 

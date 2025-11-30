@@ -29,6 +29,10 @@ echo "🎨 Creating/copying icon..."
 if [ ! -f "resources/AppIcon.icns" ]; then
     ./scripts/create-icon.sh
 fi
+if [ ! -f "resources/AppIcon.icns" ]; then
+    echo "❌ Error: Icon file resources/AppIcon.icns not found after attempting to create it."
+    exit 1
+fi
 cp resources/AppIcon.icns "$RESOURCES_DIR/"
 
 echo "📋 Copying Info.plist..."
@@ -80,7 +84,10 @@ cat > "$CONTENTS_DIR/Info.plist" <<EOF
 EOF
 
 echo "🔏 Ad-hoc code signing..."
-codesign --force --deep --sign - "$BUNDLE_DIR"
+if ! codesign --force --deep --sign - "$BUNDLE_DIR"; then
+    echo "⚠️  codesign failed. The bundle may be invalid or your system may not support ad-hoc signing."
+    echo "You can still try to run the app, but macOS may refuse to launch it or show a warning."
+fi
 
 echo "✅ .app bundle created: $BUNDLE_DIR"
 echo ""
