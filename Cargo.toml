@@ -9,7 +9,7 @@ tokio = { version = "1", features = ["full"] }
 toml = "0.8"
 serde = { version = "1", features = ["derive"] }
 tracing = "0.1"
-tracing-subscriber = "0.3"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = "1"
 thiserror = "1"
 core-graphics = "0.23"

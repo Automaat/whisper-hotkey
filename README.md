@@ -41,6 +41,16 @@ mise exec -- cargo run --release
 - Downloads Whisper model: `~/.whisper-hotkey/models/ggml-small.bin` (~466MB)
 - Loads model (takes 2-3s)
 
+**Console output:** Real-time logs show activity:
+```
+🎤 Hotkey pressed - recording started
+⏹️  Hotkey released - processing audio
+📼 Captured 3.5s audio (56000 samples)
+✨ Transcription: "Hello, this is a test"
+✅ Inserted 22 chars
+✓ Ready for next recording
+```
+
 ### 3. Test
 
 1. Open any text editor (TextEdit, VS Code, Notes, Chrome)
@@ -165,9 +175,16 @@ mise exec -- cargo test
 mise exec -- cargo test -- --ignored
 ```
 
-### Profile performance
+### Logging levels
+
 ```bash
-# Detailed logs
+# Default: info level (shows hotkey events, transcription results)
+cargo run --release
+
+# Debug: detailed timing information
+RUST_LOG=debug cargo run --release
+
+# Trace: everything including low-level operations
 RUST_LOG=whisper_hotkey=trace cargo run --release
 
 # CPU profiling

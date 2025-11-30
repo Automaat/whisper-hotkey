@@ -1,12 +1,17 @@
 use anyhow::{Context, Result};
 use std::fs::{self, OpenOptions};
+use std::io;
 use std::path::PathBuf;
+use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 /// Initialize telemetry logging
 pub fn init(enabled: bool, log_path: &str) -> Result<()> {
     if !enabled {
         // Basic stdout logging only
-        tracing_subscriber::fmt().with_target(false).init();
+        tracing_subscriber::fmt()
+            .with_target(false)
+            .with_env_filter(EnvFilter::from_default_env())
+            .init();
         return Ok(());
     }
 
@@ -24,10 +29,26 @@ pub fn init(enabled: bool, log_path: &str) -> Result<()> {
         .open(&expanded_path)
         .context("failed to open log file")?;
 
-    tracing_subscriber::fmt()
-        .with_writer(file)
+    // Create console layer (with colors for terminal)
+    let console_layer = fmt::layer()
         .with_target(false)
+        .with_writer(io::stdout)
+        .compact();
+
+    // Create file layer (no colors for file)
+    let file_layer = fmt::layer()
+        .with_target(false)
+        .with_writer(file)
         .with_ansi(false)
+        .compact();
+
+    // Combine layers with env filter (defaults to "info" if RUST_LOG not set)
+    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+
+    tracing_subscriber::registry()
+        .with(env_filter)
+        .with(console_layer)
+        .with(file_layer)
         .init();
 
     tracing::info!("telemetry initialized: {}", expanded_path.display());
