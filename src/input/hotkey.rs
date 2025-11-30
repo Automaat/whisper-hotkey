@@ -12,7 +12,7 @@ use crate::input::cgevent;
 use crate::transcription::TranscriptionEngine;
 
 /// Application state machine
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AppState {
     Idle,
     Recording,

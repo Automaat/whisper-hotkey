@@ -1,4 +1,5 @@
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tray_icon::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tray_icon::{Icon, TrayIconBuilder};
@@ -24,11 +25,21 @@ pub struct TrayManager {
     tray: tray_icon::TrayIcon,
     state: Arc<Mutex<AppState>>,
     current_icon_state: AppState,
+    cached_icons: HashMap<AppState, Icon>,
 }
 
 impl TrayManager {
     pub fn new(config: &Config, state: Arc<Mutex<AppState>>) -> Result<Self> {
-        let icon = Self::load_icon(AppState::Idle)?;
+        // Preload all three icons into cache
+        let mut cached_icons = HashMap::new();
+        cached_icons.insert(AppState::Idle, Self::load_icon(AppState::Idle)?);
+        cached_icons.insert(AppState::Recording, Self::load_icon(AppState::Recording)?);
+        cached_icons.insert(AppState::Processing, Self::load_icon(AppState::Processing)?);
+
+        let icon = cached_icons
+            .get(&AppState::Idle)
+            .context("idle icon not in cache")?
+            .clone();
         let menu = Self::build_menu(config, Some(AppState::Idle))?;
 
         let tray = TrayIconBuilder::new()
@@ -42,6 +53,7 @@ impl TrayManager {
             tray,
             state,
             current_icon_state: AppState::Idle,
+            cached_icons,
         })
     }
 
@@ -62,19 +74,17 @@ impl TrayManager {
 
         let (width, height) = image.dimensions();
         let rgba = image.into_raw();
-        tracing::debug!(
-            "icon loaded: {}x{}, {} bytes",
-            width,
-            height,
-            rgba.len()
-        );
+        tracing::debug!("icon loaded: {}x{}, {} bytes", width, height, rgba.len());
 
         Icon::from_rgba(rgba, width, height).context("failed to create icon from RGBA data")
     }
 
     /// Update icon and menu if state changed
     pub fn update_icon_if_needed(&mut self, config: &Config) -> Result<()> {
-        let new_state = *self.state.lock().unwrap();
+        let new_state = *self
+            .state
+            .lock()
+            .map_err(|e| anyhow!("state lock poisoned: {}", e))?;
         if new_state != self.current_icon_state {
             tracing::info!(
                 "🔄 tray state change: {:?} -> {:?}",
@@ -86,8 +96,12 @@ impl TrayManager {
             let new_menu = Self::build_menu(config, Some(new_state))?;
             self.tray.set_menu(Some(Box::new(new_menu)));
 
-            // Try icon update (has known macOS bug but keep trying)
-            let icon = Self::load_icon(new_state)?;
+            // Try icon update (has known macOS bug but keep trying) - use cached icon
+            let icon = self
+                .cached_icons
+                .get(&new_state)
+                .context("icon not in cache")?
+                .clone();
             self.tray.set_icon(Some(icon)).ok();
 
             self.current_icon_state = new_state;
@@ -277,7 +291,10 @@ impl TrayManager {
     }
 
     pub fn update_menu(&mut self, config: &Config) -> Result<()> {
-        let current_state = *self.state.lock().unwrap();
+        let current_state = *self
+            .state
+            .lock()
+            .map_err(|e| anyhow!("state lock poisoned: {}", e))?;
         let new_menu = Self::build_menu(config, Some(current_state))?;
         self.tray.set_menu(Some(Box::new(new_menu)));
         Ok(())
@@ -510,24 +527,24 @@ mod tests {
 
         // Change state to Recording
         *state.lock().unwrap() = AppState::Recording;
-        let result = tray.update_icon_if_needed();
+        let result = tray.update_icon_if_needed(&config);
         assert!(result.is_ok());
         assert_eq!(tray.current_icon_state, AppState::Recording);
 
         // Change state to Processing
         *state.lock().unwrap() = AppState::Processing;
-        let result = tray.update_icon_if_needed();
+        let result = tray.update_icon_if_needed(&config);
         assert!(result.is_ok());
         assert_eq!(tray.current_icon_state, AppState::Processing);
 
         // No change - should not reload icon
-        let result = tray.update_icon_if_needed();
+        let result = tray.update_icon_if_needed(&config);
         assert!(result.is_ok());
         assert_eq!(tray.current_icon_state, AppState::Processing);
 
         // Back to Idle
         *state.lock().unwrap() = AppState::Idle;
-        let result = tray.update_icon_if_needed();
+        let result = tray.update_icon_if_needed(&config);
         assert!(result.is_ok());
         assert_eq!(tray.current_icon_state, AppState::Idle);
     }

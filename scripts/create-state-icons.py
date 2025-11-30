@@ -2,7 +2,6 @@
 """Generate state-specific tray icons."""
 
 from PIL import Image, ImageDraw
-import sys
 
 def create_recording_icon(base_path, output_path):
     """Add red recording dot to base icon."""
@@ -13,7 +12,12 @@ def create_recording_icon(base_path, output_path):
     dot_size = 12
     x, y = img.width - dot_size - 1, 1
     # Draw with bright red fill and outline for visibility
-    draw.ellipse([x, y, x + dot_size, y + dot_size], fill=(255, 20, 20, 255), outline=(180, 0, 0, 255), width=2)
+    draw.ellipse(
+        [x, y, x + dot_size, y + dot_size],
+        fill=(255, 20, 20, 255),
+        outline=(180, 0, 0, 255),
+        width=2,
+    )
 
     img.save(output_path)
     print(f"✓ Created {output_path}")
@@ -55,9 +59,9 @@ def create_processing_icon(base_path, output_path):
     print(f"✓ Created {output_path}")
 
 if __name__ == "__main__":
-    base_icon = "icon-32.png"
+    BASE_ICON = "icon-32.png"
 
-    create_recording_icon(base_icon, "icon-recording-32.png")
-    create_processing_icon(base_icon, "icon-processing-32.png")
+    create_recording_icon(BASE_ICON, "icon-recording-32.png")
+    create_processing_icon(BASE_ICON, "icon-processing-32.png")
 
     print("✓ All state icons created")
