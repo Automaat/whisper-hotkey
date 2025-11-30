@@ -142,7 +142,7 @@ async fn main() -> Result<()> {
 
             loop {
                 let event = app.nextEventMatchingMask_untilDate_inMode_dequeue_(
-                    std::u64::MAX,
+                    u64::MAX,
                     distant_past,
                     cocoa::foundation::NSDefaultRunLoopMode,
                     true,

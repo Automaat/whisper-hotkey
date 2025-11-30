@@ -47,12 +47,11 @@ impl AudioCapture {
         // Create ring buffer sized for max recording duration (30s at device sample rate)
         // This ensures no samples are dropped during recording
         let max_recording_secs = 30;
-        let ring_buffer_capacity = (device_sample_rate as usize) * (device_channels as usize) * max_recording_secs;
+        let ring_buffer_capacity =
+            (device_sample_rate as usize) * (device_channels as usize) * max_recording_secs;
         info!(
             "ring buffer capacity: {} samples ({} seconds at {} Hz)",
-            ring_buffer_capacity,
-            max_recording_secs,
-            device_sample_rate
+            ring_buffer_capacity, max_recording_secs, device_sample_rate
         );
         let ring_buffer = HeapRb::<f32>::new(ring_buffer_capacity);
         let (ring_buffer_producer, ring_buffer_consumer) = ring_buffer.split();
