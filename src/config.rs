@@ -113,7 +113,8 @@ log_path = "~/.whisper-hotkey/crash.log"
     /// Save config to ~/.whisper-hotkey.toml
     pub fn save(&self) -> Result<()> {
         let config_path = Self::config_path()?;
-        let contents = toml::to_string_pretty(self).context("failed to serialize config to TOML")?;
+        let contents =
+            toml::to_string_pretty(self).context("failed to serialize config to TOML")?;
         fs::write(&config_path, contents).context("failed to write config file")?;
         Ok(())
     }

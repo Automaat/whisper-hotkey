@@ -216,8 +216,7 @@ impl TrayManager {
             .context("failed to append open config item")?;
 
         let quit = MenuItem::new("Quit", true, None);
-        menu.append(&quit)
-            .context("failed to append quit item")?;
+        menu.append(&quit).context("failed to append quit item")?;
 
         Ok(menu)
     }
@@ -424,4 +423,3 @@ mod tests {
         assert!(debug_str.contains("Quit"));
     }
 }
-
