@@ -70,10 +70,11 @@ impl HotkeyManager {
                 info!("hotkey pressed: Idle → Recording");
                 *state = AppState::Recording;
 
-                // Start audio recording
+                // Start audio recording with error recovery
                 if let Err(e) = self.audio.lock().unwrap().start_recording() {
-                    warn!("failed to start recording: {}", e);
+                    warn!(error = %e, "failed to start recording, returning to Idle");
                     *state = AppState::Idle;
+                    // Continue running - this is a transient error, user can try again
                 }
             }
             AppState::Recording => {
@@ -96,9 +97,9 @@ impl HotkeyManager {
                 // Stop audio recording and get samples
                 match self.audio.lock().unwrap().stop_recording() {
                     Ok(samples) => {
-                        info!("captured {} samples (16kHz mono)", samples.len());
+                        info!(sample_count = samples.len(), "captured audio (16kHz mono)");
 
-                        // Save WAV debug file
+                        // Save WAV debug file with error recovery
                         let timestamp = std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
                             .unwrap()
@@ -110,10 +111,12 @@ impl HotkeyManager {
                             .join(format!("recording_{}.wav", timestamp));
 
                         if let Err(e) = AudioCapture::save_wav_debug(&samples, &debug_path) {
-                            warn!("failed to save debug WAV: {}", e);
+                            warn!(error = %e, path = ?debug_path, "failed to save debug WAV");
+                        } else {
+                            debug!(path = ?debug_path, "saved debug WAV");
                         }
 
-                        // Phase 5: Transcription + Text Insertion (background thread)
+                        // Phase 5 & 6: Transcription + Text Insertion (background thread with error recovery)
                         if let Some(engine) = &self.transcription {
                             let engine = Arc::clone(engine);
                             let state_arc = Arc::clone(&self.state);
@@ -121,38 +124,57 @@ impl HotkeyManager {
                             std::thread::spawn(move || {
                                 match engine.transcribe(&samples) {
                                     Ok(text) => {
-                                        info!(text_len = text.len(), "transcription successful");
+                                        info!(
+                                            text_len = text.len(),
+                                            text_preview = %text.chars().take(50).collect::<String>(),
+                                            "transcription successful"
+                                        );
 
                                         // Insert text at cursor, only if non-empty
                                         if !text.is_empty() {
                                             if !cgevent::insert_text_safe(&text) {
                                                 warn!(
+                                                    text = %text,
                                                     "text insertion failed, check telemetry logs"
+                                                );
+                                            } else {
+                                                info!(
+                                                    text_len = text.len(),
+                                                    "text inserted successfully"
                                                 );
                                             }
                                         } else {
-                                            info!("transcription produced no text");
+                                            info!(
+                                                "transcription produced no text (silence or noise)"
+                                            );
                                         }
                                     }
                                     Err(e) => {
-                                        warn!("transcription failed: {}", e);
+                                        warn!(
+                                            error = %e,
+                                            sample_count = samples.len(),
+                                            "transcription failed"
+                                        );
                                     }
                                 }
 
-                                // Set state to Idle after processing
+                                // Set state to Idle after processing (always recover)
                                 let mut state = state_arc.lock().unwrap();
                                 *state = AppState::Idle;
                                 info!("processing complete: Processing → Idle");
                             });
                         } else {
-                            warn!("transcription engine not available (preload disabled?)");
+                            warn!(
+                                "transcription engine not available (preload disabled or failed)"
+                            );
                             *state = AppState::Idle;
-                            info!("processing complete: Processing → Idle");
+                            info!("processing complete: Processing → Idle (no transcription)");
                         }
                     }
                     Err(e) => {
-                        warn!("failed to stop recording: {}", e);
+                        warn!(error = %e, "failed to stop recording, returning to Idle");
                         *state = AppState::Idle;
+                        // Continue running - this is a transient error, user can try again
                     }
                 }
             }
