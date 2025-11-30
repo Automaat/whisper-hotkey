@@ -81,12 +81,21 @@ impl TrayManager {
                 self.current_icon_state,
                 new_state
             );
+
+            // Update tooltip text (visible feedback since icon updates don't work on macOS)
+            let tooltip = match new_state {
+                AppState::Idle => "Whisper Hotkey - Ready",
+                AppState::Recording => "Whisper Hotkey - 🎤 Recording...",
+                AppState::Processing => "Whisper Hotkey - ⏳ Transcribing...",
+            };
+            self.tray.set_tooltip(Some(tooltip));
+
+            // Try icon update (has known macOS bug but keep trying)
             let icon = Self::load_icon(new_state)?;
-            let result = self.tray.set_icon(Some(icon));
-            tracing::info!("✓ tray icon set_icon result: {:?}", result);
-            result.context("failed to set tray icon")?;
+            self.tray.set_icon(Some(icon)).ok();
+
             self.current_icon_state = new_state;
-            tracing::info!("✓ tray icon updated to {:?}", new_state);
+            tracing::info!("✓ tray updated: tooltip={:?}", tooltip);
         }
         Ok(())
     }
