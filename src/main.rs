@@ -139,6 +139,25 @@ async fn main() -> Result<()> {
     let mut config = config; // Make config mutable for updates
     let mut should_quit = false;
 
+    // Helper to save config, log, and update menu after config changes
+    fn save_and_update(
+        config: &config::Config,
+        tray_manager: &mut tray::TrayManager,
+        success_msg: &str,
+        requires_restart: bool,
+    ) -> Result<()> {
+        config.save().context("failed to save config")?;
+        let msg = if requires_restart {
+            format!("{} (restart required)", success_msg)
+        } else {
+            success_msg.to_string()
+        };
+        println!("✓ {}", msg);
+        tracing::info!("{}", success_msg.to_lowercase());
+        tray_manager.update_menu(config)?;
+        Ok(())
+    }
+
     loop {
         if should_quit {
             break;
@@ -181,122 +200,79 @@ async fn main() -> Result<()> {
                 tray::TrayCommand::UpdateHotkey { modifiers, key } => {
                     config.hotkey.modifiers = modifiers;
                     config.hotkey.key = key;
-                    if let Err(e) = config.save() {
-                        tracing::error!("failed to save config: {:?}", e);
+                    if let Err(e) = save_and_update(&config, &mut tray_manager, "Hotkey updated", true) {
+                        tracing::error!("failed to update config: {:?}", e);
                         println!("⚠ Failed to save config: {}", e);
-                    } else {
-                        println!("✓ Hotkey updated (restart required)");
-                        tracing::info!("hotkey config updated");
-                    }
-                    if let Err(e) = tray_manager.update_menu(&config) {
-                        tracing::error!("failed to update menu: {:?}", e);
                     }
                 }
                 tray::TrayCommand::UpdateModel { name } => {
                     config.model.name = name;
-                    if let Err(e) = config.save() {
-                        tracing::error!("failed to save config: {:?}", e);
+                    if let Err(e) = save_and_update(&config, &mut tray_manager, "Model updated", true) {
+                        tracing::error!("failed to update config: {:?}", e);
                         println!("⚠ Failed to save config: {}", e);
-                    } else {
-                        println!("✓ Model updated (restart required)");
-                        tracing::info!("model config updated");
-                    }
-                    if let Err(e) = tray_manager.update_menu(&config) {
-                        tracing::error!("failed to update menu: {:?}", e);
                     }
                 }
                 tray::TrayCommand::UpdateThreads(threads) => {
                     config.model.threads = threads;
-                    if let Err(e) = config.save() {
-                        tracing::error!("failed to save config: {:?}", e);
+                    if let Err(e) = save_and_update(&config, &mut tray_manager, &format!("Threads updated to {}", threads), false) {
+                        tracing::error!("failed to update config: {:?}", e);
                         println!("⚠ Failed to save config: {}", e);
-                    } else {
-                        println!("✓ Threads updated to {}", threads);
-                        tracing::info!("threads config updated: {}", threads);
-                    }
-                    if let Err(e) = tray_manager.update_menu(&config) {
-                        tracing::error!("failed to update menu: {:?}", e);
                     }
                 }
                 tray::TrayCommand::UpdateBeamSize(beam) => {
                     config.model.beam_size = beam;
-                    if let Err(e) = config.save() {
-                        tracing::error!("failed to save config: {:?}", e);
+                    if let Err(e) = save_and_update(&config, &mut tray_manager, &format!("Beam size updated to {}", beam), false) {
+                        tracing::error!("failed to update config: {:?}", e);
                         println!("⚠ Failed to save config: {}", e);
-                    } else {
-                        println!("✓ Beam size updated to {}", beam);
-                        tracing::info!("beam size config updated: {}", beam);
-                    }
-                    if let Err(e) = tray_manager.update_menu(&config) {
-                        tracing::error!("failed to update menu: {:?}", e);
                     }
                 }
                 tray::TrayCommand::UpdateLanguage(lang) => {
-                    config.model.language = lang.clone();
-                    if let Err(e) = config.save() {
-                        tracing::error!("failed to save config: {:?}", e);
-                        println!("⚠ Failed to save config: {}", e);
+                    let msg = if let Some(ref l) = lang {
+                        format!("Language updated to {}", l)
                     } else {
-                        if let Some(ref l) = lang {
-                            println!("✓ Language updated to {}", l);
-                        } else {
-                            println!("✓ Language set to auto-detect");
-                        }
-                        tracing::info!("language config updated: {:?}", lang);
-                    }
-                    if let Err(e) = tray_manager.update_menu(&config) {
-                        tracing::error!("failed to update menu: {:?}", e);
+                        "Language set to auto-detect".to_string()
+                    };
+                    config.model.language = lang;
+                    if let Err(e) = save_and_update(&config, &mut tray_manager, &msg, false) {
+                        tracing::error!("failed to update config: {:?}", e);
+                        println!("⚠ Failed to save config: {}", e);
                     }
                 }
                 tray::TrayCommand::UpdateBufferSize(size) => {
                     config.audio.buffer_size = size;
-                    if let Err(e) = config.save() {
-                        tracing::error!("failed to save config: {:?}", e);
+                    if let Err(e) = save_and_update(&config, &mut tray_manager, &format!("Buffer size updated to {}", size), true) {
+                        tracing::error!("failed to update config: {:?}", e);
                         println!("⚠ Failed to save config: {}", e);
-                    } else {
-                        println!("✓ Buffer size updated to {} (restart required)", size);
-                        tracing::info!("buffer size config updated: {}", size);
-                    }
-                    if let Err(e) = tray_manager.update_menu(&config) {
-                        tracing::error!("failed to update menu: {:?}", e);
                     }
                 }
-                tray::TrayCommand::TogglePreload(_enabled) => {
+                tray::TrayCommand::TogglePreload => {
                     config.model.preload = !config.model.preload;
-                    if let Err(e) = config.save() {
-                        tracing::error!("failed to save config: {:?}", e);
+                    let msg = format!("Preload {}", if config.model.preload { "enabled" } else { "disabled" });
+                    if let Err(e) = save_and_update(&config, &mut tray_manager, &msg, true) {
+                        tracing::error!("failed to update config: {:?}", e);
                         println!("⚠ Failed to save config: {}", e);
-                    } else {
-                        println!(
-                            "✓ Preload {} (restart required)",
-                            if config.model.preload { "enabled" } else { "disabled" }
-                        );
-                        tracing::info!("preload config toggled: {}", config.model.preload);
-                    }
-                    if let Err(e) = tray_manager.update_menu(&config) {
-                        tracing::error!("failed to update menu: {:?}", e);
                     }
                 }
-                tray::TrayCommand::ToggleTelemetry(_enabled) => {
+                tray::TrayCommand::ToggleTelemetry => {
                     config.telemetry.enabled = !config.telemetry.enabled;
-                    if let Err(e) = config.save() {
-                        tracing::error!("failed to save config: {:?}", e);
+                    let msg = format!("Telemetry {}", if config.telemetry.enabled { "enabled" } else { "disabled" });
+                    if let Err(e) = save_and_update(&config, &mut tray_manager, &msg, true) {
+                        tracing::error!("failed to update config: {:?}", e);
                         println!("⚠ Failed to save config: {}", e);
-                    } else {
-                        println!(
-                            "✓ Telemetry {} (restart required)",
-                            if config.telemetry.enabled { "enabled" } else { "disabled" }
-                        );
-                        tracing::info!("telemetry config toggled: {}", config.telemetry.enabled);
-                    }
-                    if let Err(e) = tray_manager.update_menu(&config) {
-                        tracing::error!("failed to update menu: {:?}", e);
                     }
                 }
                 tray::TrayCommand::OpenConfigFile => {
                     if let Ok(path) = config::Config::get_config_path() {
-                        let _ = std::process::Command::new("open").arg(&path).spawn();
-                        tracing::info!("opened config file: {:?}", path);
+                        #[cfg(target_os = "macos")]
+                        {
+                            let _ = std::process::Command::new("open").arg(&path).spawn();
+                            tracing::info!("opened config file: {:?}", path);
+                        }
+                        #[cfg(not(target_os = "macos"))]
+                        {
+                            println!("Config file location: {:?}", path);
+                            tracing::info!("config file location: {:?}", path);
+                        }
                     }
                 }
                 tray::TrayCommand::Quit => {

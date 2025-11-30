@@ -12,8 +12,8 @@ pub enum TrayCommand {
     UpdateBeamSize(usize),
     UpdateLanguage(Option<String>),
     UpdateBufferSize(usize),
-    TogglePreload(bool),
-    ToggleTelemetry(bool),
+    TogglePreload,
+    ToggleTelemetry,
     OpenConfigFile,
     Quit,
 }
@@ -243,136 +243,65 @@ impl TrayManager {
         // Strip checkmark if present
         let id = id.trim_start_matches("✓ ");
 
-        // Hotkeys
-        if id == "Control+Option+Z" {
-            return Some(TrayCommand::UpdateHotkey {
+        match id {
+            // Hotkeys
+            "Control+Option+Z" => Some(TrayCommand::UpdateHotkey {
                 modifiers: vec!["Control".to_string(), "Option".to_string()],
                 key: "Z".to_string(),
-            });
-        }
-        if id == "Command+Shift+V" {
-            return Some(TrayCommand::UpdateHotkey {
+            }),
+            "Command+Shift+V" => Some(TrayCommand::UpdateHotkey {
                 modifiers: vec!["Command".to_string(), "Shift".to_string()],
                 key: "V".to_string(),
-            });
-        }
-        if id == "Command+Option+V" {
-            return Some(TrayCommand::UpdateHotkey {
+            }),
+            "Command+Option+V" => Some(TrayCommand::UpdateHotkey {
                 modifiers: vec!["Command".to_string(), "Option".to_string()],
                 key: "V".to_string(),
-            });
-        }
-        if id == "Control+Shift+Space" {
-            return Some(TrayCommand::UpdateHotkey {
+            }),
+            "Control+Shift+Space" => Some(TrayCommand::UpdateHotkey {
                 modifiers: vec!["Control".to_string(), "Shift".to_string()],
                 key: "Space".to_string(),
-            });
-        }
+            }),
 
-        // Models
-        if id == "tiny" {
-            return Some(TrayCommand::UpdateModel {
-                name: "tiny".to_string(),
-            });
-        }
-        if id == "base" {
-            return Some(TrayCommand::UpdateModel {
-                name: "base".to_string(),
-            });
-        }
-        if id == "small" {
-            return Some(TrayCommand::UpdateModel {
-                name: "small".to_string(),
-            });
-        }
-        if id == "medium" {
-            return Some(TrayCommand::UpdateModel {
-                name: "medium".to_string(),
-            });
-        }
+            // Models
+            "tiny" | "base" | "small" | "medium" => Some(TrayCommand::UpdateModel {
+                name: id.to_string(),
+            }),
 
-        // Threads
-        if id == "2 threads" {
-            return Some(TrayCommand::UpdateThreads(2));
-        }
-        if id == "4 threads" {
-            return Some(TrayCommand::UpdateThreads(4));
-        }
-        if id == "6 threads" {
-            return Some(TrayCommand::UpdateThreads(6));
-        }
-        if id == "8 threads" {
-            return Some(TrayCommand::UpdateThreads(8));
-        }
+            // Threads
+            "2 threads" => Some(TrayCommand::UpdateThreads(2)),
+            "4 threads" => Some(TrayCommand::UpdateThreads(4)),
+            "6 threads" => Some(TrayCommand::UpdateThreads(6)),
+            "8 threads" => Some(TrayCommand::UpdateThreads(8)),
 
-        // Beam sizes
-        if id == "Beam size 1" {
-            return Some(TrayCommand::UpdateBeamSize(1));
-        }
-        if id == "Beam size 3" {
-            return Some(TrayCommand::UpdateBeamSize(3));
-        }
-        if id == "Beam size 5" {
-            return Some(TrayCommand::UpdateBeamSize(5));
-        }
-        if id == "Beam size 8" {
-            return Some(TrayCommand::UpdateBeamSize(8));
-        }
-        if id == "Beam size 10" {
-            return Some(TrayCommand::UpdateBeamSize(10));
-        }
+            // Beam sizes
+            "Beam size 1" => Some(TrayCommand::UpdateBeamSize(1)),
+            "Beam size 3" => Some(TrayCommand::UpdateBeamSize(3)),
+            "Beam size 5" => Some(TrayCommand::UpdateBeamSize(5)),
+            "Beam size 8" => Some(TrayCommand::UpdateBeamSize(8)),
+            "Beam size 10" => Some(TrayCommand::UpdateBeamSize(10)),
 
-        // Languages
-        if id == "Auto-detect" {
-            return Some(TrayCommand::UpdateLanguage(None));
-        }
-        if id == "English" {
-            return Some(TrayCommand::UpdateLanguage(Some("en".to_string())));
-        }
-        if id == "Polish" {
-            return Some(TrayCommand::UpdateLanguage(Some("pl".to_string())));
-        }
-        if id == "Spanish" {
-            return Some(TrayCommand::UpdateLanguage(Some("es".to_string())));
-        }
-        if id == "French" {
-            return Some(TrayCommand::UpdateLanguage(Some("fr".to_string())));
-        }
-        if id == "German" {
-            return Some(TrayCommand::UpdateLanguage(Some("de".to_string())));
-        }
+            // Languages
+            "Auto-detect" => Some(TrayCommand::UpdateLanguage(None)),
+            "English" => Some(TrayCommand::UpdateLanguage(Some("en".to_string()))),
+            "Polish" => Some(TrayCommand::UpdateLanguage(Some("pl".to_string()))),
+            "Spanish" => Some(TrayCommand::UpdateLanguage(Some("es".to_string()))),
+            "French" => Some(TrayCommand::UpdateLanguage(Some("fr".to_string()))),
+            "German" => Some(TrayCommand::UpdateLanguage(Some("de".to_string()))),
 
-        // Audio buffer
-        if id == "512 samples" {
-            return Some(TrayCommand::UpdateBufferSize(512));
-        }
-        if id == "1024 samples" {
-            return Some(TrayCommand::UpdateBufferSize(1024));
-        }
-        if id == "2048 samples" {
-            return Some(TrayCommand::UpdateBufferSize(2048));
-        }
-        if id == "4096 samples" {
-            return Some(TrayCommand::UpdateBufferSize(4096));
-        }
+            // Audio buffer
+            "512 samples" => Some(TrayCommand::UpdateBufferSize(512)),
+            "1024 samples" => Some(TrayCommand::UpdateBufferSize(1024)),
+            "2048 samples" => Some(TrayCommand::UpdateBufferSize(2048)),
+            "4096 samples" => Some(TrayCommand::UpdateBufferSize(4096)),
 
-        // Toggles
-        if id == "Preload Model" {
-            return Some(TrayCommand::TogglePreload(true));
-        }
-        if id == "Telemetry" {
-            return Some(TrayCommand::ToggleTelemetry(true));
-        }
+            // Toggles and Actions
+            "Preload Model" => Some(TrayCommand::TogglePreload),
+            "Telemetry" => Some(TrayCommand::ToggleTelemetry),
+            "Open Config File" => Some(TrayCommand::OpenConfigFile),
+            "Quit" => Some(TrayCommand::Quit),
 
-        // Actions
-        if id == "Open Config File" {
-            return Some(TrayCommand::OpenConfigFile);
+            _ => None,
         }
-        if id == "Quit" {
-            return Some(TrayCommand::Quit);
-        }
-
-        None
     }
 }
 
