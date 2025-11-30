@@ -31,6 +31,19 @@ impl TranscriptionEngine {
         threads: usize,
         beam_size: usize,
     ) -> Result<Self, TranscriptionError> {
+        if threads == 0 {
+            return Err(TranscriptionError::ModelLoad {
+                path: model_path.display().to_string(),
+                source: anyhow::anyhow!("threads must be > 0"),
+            });
+        }
+        if beam_size == 0 {
+            return Err(TranscriptionError::ModelLoad {
+                path: model_path.display().to_string(),
+                source: anyhow::anyhow!("beam_size must be > 0"),
+            });
+        }
+
         tracing::info!(
             path = %model_path.display(),
             threads = threads,
@@ -334,6 +347,9 @@ mod tests {
     #[test]
     #[ignore] // Requires actual model file
     fn test_optimization_params() {
+        // NOTE: This test validates that different optimization parameters are accepted
+        // without crashing, but does not verify that they actually affect behavior or
+        // transcription quality. For performance validation, see manual tests in TESTING.md.
         let model_path = match get_test_model_path() {
             Some(path) => path,
             None => {

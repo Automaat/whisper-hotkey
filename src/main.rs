@@ -111,13 +111,24 @@ async fn main() -> Result<()> {
         tracing::warn!("transcription disabled, running in degraded mode");
     }
     println!("Press Ctrl+C to exit.\n");
+    println!("⚠️  If hotkey doesn't work, grant Input Monitoring permission:");
+    println!("   System Settings → Privacy & Security → Input Monitoring");
+    println!("   Add and enable your terminal app (Terminal/iTerm2)\n");
 
     let receiver = GlobalHotKeyEvent::receiver();
+    let mut poll_count = 0u64;
     loop {
         // Poll for hotkey events with error recovery
         if let Ok(event) = receiver.try_recv() {
+            println!("DEBUG: Received event: {:?}", event);
             tracing::debug!("hotkey event received: {:?}", event);
             hotkey_manager.handle_event(event);
+        }
+
+        // Debug: print a heartbeat every 5 seconds to show we're polling
+        poll_count += 1;
+        if poll_count.is_multiple_of(500) {
+            println!("DEBUG: Event loop alive (poll #{})", poll_count);
         }
 
         // Check for shutdown signal

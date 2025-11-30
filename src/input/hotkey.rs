@@ -64,10 +64,12 @@ impl HotkeyManager {
 
     /// Handle hotkey press event
     pub fn on_press(&self) {
+        println!("🎤 Hotkey pressed!");
         let mut state = self.state.lock().unwrap();
         match *state {
             AppState::Idle => {
                 info!("🎤 Hotkey pressed - recording started");
+                println!("📼 Recording started...");
                 *state = AppState::Recording;
 
                 // Start audio recording with error recovery
@@ -88,10 +90,12 @@ impl HotkeyManager {
 
     /// Handle hotkey release event
     pub fn on_release(&self) {
+        println!("⏹️  Hotkey released!");
         let mut state = self.state.lock().unwrap();
         match *state {
             AppState::Recording => {
                 info!("⏹️  Hotkey released - processing audio");
+                println!("⚙️  Processing audio...");
                 *state = AppState::Processing;
 
                 // Stop audio recording and get samples

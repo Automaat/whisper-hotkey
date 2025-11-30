@@ -25,10 +25,11 @@ cargo test -- --ignored
 ```
 
 Key tests:
-- [config.rs:142](src/config.rs#L142) - Config parsing with optimization params
-- [engine.rs:316](src/transcription/engine.rs#L316) - Long 30s recordings
-- [engine.rs:336](src/transcription/engine.rs#L336) - Optimization param variations
-- [engine.rs:360](src/transcription/engine.rs#L360) - Noise handling
+
+- [config.rs:237](src/config.rs#L237) - Config parsing with default optimization parameters
+- [engine.rs:327](src/transcription/engine.rs#L327) - Long 30s recordings
+- [engine.rs:347](src/transcription/engine.rs#L347) - Optimization param variations
+- [engine.rs:374](src/transcription/engine.rs#L374) - Noise handling
 
 ---
 
@@ -42,7 +43,7 @@ RUST_LOG=whisper_hotkey=trace cargo run --release
 ```
 
 Key metrics (check logs):
-- `start_recording`: latency_us <50ms target
+- `start_recording`: latency_us <50μs target
 - `stop_recording`: total_ms <50ms target
 - `convert_to_16khz_mono`: total_us <20ms target
 - `transcription`: inference_ms <2000ms for 10s audio
@@ -165,7 +166,7 @@ Restart, verify auto-download + transcription accuracy.
 
 | Metric | Target | Command |
 |--------|--------|---------|
-| Audio start | <50ms | `RUST_LOG=trace` logs |
+| Audio start | <50μs | `RUST_LOG=trace` logs |
 | Transcription (10s) | <2s | `RUST_LOG=info` logs |
 | Text insertion | <100ms | Test manually |
 | Idle CPU | <1% | Activity Monitor |
