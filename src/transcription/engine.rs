@@ -22,6 +22,7 @@ pub struct TranscriptionEngine {
     ctx: Arc<Mutex<WhisperContext>>,
     threads: usize,
     beam_size: usize,
+    language: Option<String>,
 }
 
 impl TranscriptionEngine {
@@ -30,6 +31,7 @@ impl TranscriptionEngine {
         model_path: &Path,
         threads: usize,
         beam_size: usize,
+        language: Option<String>,
     ) -> Result<Self, TranscriptionError> {
         if threads == 0 {
             return Err(TranscriptionError::ModelLoad {
@@ -48,6 +50,7 @@ impl TranscriptionEngine {
             path = %model_path.display(),
             threads = threads,
             beam_size = beam_size,
+            language = ?language,
             "loading whisper model"
         );
 
@@ -72,6 +75,7 @@ impl TranscriptionEngine {
             ctx: Arc::new(Mutex::new(ctx)),
             threads,
             beam_size,
+            language,
         })
     }
 
@@ -107,7 +111,7 @@ impl TranscriptionEngine {
         params.set_print_progress(false);
         params.set_print_realtime(false);
         params.set_print_timestamps(false);
-        params.set_language(None); // Auto-detect language
+        params.set_language(self.language.as_deref()); // Use configured language or auto-detect
         params.set_translate(false);
 
         // Run transcription
@@ -168,7 +172,7 @@ mod tests {
     #[test]
     fn test_model_load_nonexistent_path() {
         let nonexistent_path = Path::new("/tmp/nonexistent_model.bin");
-        let result = TranscriptionEngine::new(nonexistent_path, 4, 5);
+        let result = TranscriptionEngine::new(nonexistent_path, 4, 5, None);
 
         assert!(result.is_err());
         match result {
@@ -192,7 +196,7 @@ mod tests {
             }
         };
 
-        let engine = TranscriptionEngine::new(&model_path, 4, 5);
+        let engine = TranscriptionEngine::new(&model_path, 4, 5, None);
         assert!(engine.is_ok(), "Failed to load model: {:?}", engine.err());
     }
 
@@ -207,7 +211,7 @@ mod tests {
             }
         };
 
-        let engine = TranscriptionEngine::new(&model_path, 4, 5).unwrap();
+        let engine = TranscriptionEngine::new(&model_path, 4, 5, None).unwrap();
 
         // 1 second of silence (16kHz)
         let silence: Vec<f32> = vec![0.0; 16000];
@@ -235,7 +239,7 @@ mod tests {
             }
         };
 
-        let engine = TranscriptionEngine::new(&model_path, 4, 5).unwrap();
+        let engine = TranscriptionEngine::new(&model_path, 4, 5, None).unwrap();
 
         let empty: Vec<f32> = vec![];
 
@@ -258,7 +262,7 @@ mod tests {
             }
         };
 
-        let engine = TranscriptionEngine::new(&model_path, 4, 5).unwrap();
+        let engine = TranscriptionEngine::new(&model_path, 4, 5, None).unwrap();
 
         // 0.5 seconds of a simple tone (440Hz sine wave)
         let sample_rate = 16000.0;
@@ -291,7 +295,7 @@ mod tests {
             }
         };
 
-        let engine = TranscriptionEngine::new(&model_path, 4, 5).unwrap();
+        let engine = TranscriptionEngine::new(&model_path, 4, 5, None).unwrap();
 
         // Run multiple transcriptions to verify state management works
         for _ in 0..3 {
@@ -312,7 +316,7 @@ mod tests {
             }
         };
 
-        let engine = TranscriptionEngine::new(&model_path, 4, 5).unwrap();
+        let engine = TranscriptionEngine::new(&model_path, 4, 5, None).unwrap();
 
         // Test different audio lengths
         let lengths = vec![8000, 16000, 32000, 48000]; // 0.5s, 1s, 2s, 3s
@@ -335,7 +339,7 @@ mod tests {
             }
         };
 
-        let engine = TranscriptionEngine::new(&model_path, 4, 5).unwrap();
+        let engine = TranscriptionEngine::new(&model_path, 4, 5, None).unwrap();
 
         // 30 seconds of silence (16kHz)
         let audio: Vec<f32> = vec![0.0; 16000 * 30];
@@ -359,9 +363,9 @@ mod tests {
         };
 
         // Test with different optimization params
-        let engine_default = TranscriptionEngine::new(&model_path, 4, 5).unwrap();
-        let engine_fast = TranscriptionEngine::new(&model_path, 8, 1).unwrap();
-        let engine_accurate = TranscriptionEngine::new(&model_path, 4, 10).unwrap();
+        let engine_default = TranscriptionEngine::new(&model_path, 4, 5, None).unwrap();
+        let engine_fast = TranscriptionEngine::new(&model_path, 8, 1, None).unwrap();
+        let engine_accurate = TranscriptionEngine::new(&model_path, 4, 10, None).unwrap();
 
         let silence: Vec<f32> = vec![0.0; 16000];
 
@@ -382,7 +386,7 @@ mod tests {
             }
         };
 
-        let engine = TranscriptionEngine::new(&model_path, 4, 5).unwrap();
+        let engine = TranscriptionEngine::new(&model_path, 4, 5, None).unwrap();
 
         // 2 seconds of random noise (16kHz)
         use std::collections::hash_map::RandomState;

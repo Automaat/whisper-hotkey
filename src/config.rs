@@ -42,6 +42,8 @@ pub struct ModelConfig {
     pub threads: usize,
     #[serde(default = "default_beam_size")]
     pub beam_size: usize,
+    #[serde(default = "default_language")]
+    pub language: Option<String>,
 }
 
 fn default_threads() -> usize {
@@ -50,6 +52,10 @@ fn default_threads() -> usize {
 
 fn default_beam_size() -> usize {
     5 // Balance speed/accuracy
+}
+
+fn default_language() -> Option<String> {
+    None // Auto-detect by default
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -94,6 +100,7 @@ path = "~/.whisper-hotkey/models/ggml-small.bin"
 preload = true
 threads = 4        # CPU threads for inference (4 optimal for M1/M2)
 beam_size = 5      # Beam search size (higher = more accurate but slower)
+# language = "pl"  # Language hint: "en", "pl", "es", etc. Omit for auto-detect
 
 [telemetry]
 enabled = true

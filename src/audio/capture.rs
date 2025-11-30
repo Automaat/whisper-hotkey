@@ -19,7 +19,7 @@ pub struct AudioCapture {
 }
 
 impl AudioCapture {
-    pub fn new(config: &AudioConfig) -> Result<Self> {
+    pub fn new(_config: &AudioConfig) -> Result<Self> {
         info!("initializing audio capture");
 
         // Get default input device
@@ -44,8 +44,16 @@ impl AudioCapture {
             device_sample_rate, device_channels
         );
 
-        // Create ring buffer (buffer_size * 4 for safety margin)
-        let ring_buffer_capacity = config.buffer_size * 4;
+        // Create ring buffer sized for max recording duration (30s at device sample rate)
+        // This ensures no samples are dropped during recording
+        let max_recording_secs = 30;
+        let ring_buffer_capacity = (device_sample_rate as usize) * (device_channels as usize) * max_recording_secs;
+        info!(
+            "ring buffer capacity: {} samples ({} seconds at {} Hz)",
+            ring_buffer_capacity,
+            max_recording_secs,
+            device_sample_rate
+        );
         let ring_buffer = HeapRb::<f32>::new(ring_buffer_capacity);
         let (ring_buffer_producer, ring_buffer_consumer) = ring_buffer.split();
 

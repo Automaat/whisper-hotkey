@@ -9,8 +9,19 @@ use anyhow::{Context, Result};
 use global_hotkey::GlobalHotKeyEvent;
 use std::sync::{Arc, Mutex};
 
+#[cfg(target_os = "macos")]
+use cocoa::appkit::{NSApp, NSApplication, NSApplicationActivationPolicyAccessory};
+#[cfg(target_os = "macos")]
+use cocoa::base::nil;
+
 #[tokio::main]
 async fn main() -> Result<()> {
+    // macOS: Initialize NSApplication event loop (required for global-hotkey)
+    #[cfg(target_os = "macos")]
+    unsafe {
+        let app = NSApp();
+        app.setActivationPolicy_(NSApplicationActivationPolicyAccessory);
+    }
     // Phase 1: Foundation
     // Load configuration
     let config = config::Config::load().context("failed to load configuration")?;
@@ -46,10 +57,16 @@ async fn main() -> Result<()> {
             "  Optimization: {} threads, beam_size={}",
             config.model.threads, config.model.beam_size
         );
+        if let Some(ref lang) = config.model.language {
+            println!("  Language: {} (hint)", lang);
+        } else {
+            println!("  Language: auto-detect");
+        }
         match transcription::TranscriptionEngine::new(
             &model_path,
             config.model.threads,
             config.model.beam_size,
+            config.model.language.clone(),
         ) {
             Ok(engine) => {
                 println!("✓ Whisper model loaded and ready");
@@ -111,24 +128,38 @@ async fn main() -> Result<()> {
         tracing::warn!("transcription disabled, running in degraded mode");
     }
     println!("Press Ctrl+C to exit.\n");
-    println!("⚠️  If hotkey doesn't work, grant Input Monitoring permission:");
-    println!("   System Settings → Privacy & Security → Input Monitoring");
-    println!("   Add and enable your terminal app (Terminal/iTerm2)\n");
 
     let receiver = GlobalHotKeyEvent::receiver();
-    let mut poll_count = 0u64;
     loop {
-        // Poll for hotkey events with error recovery
-        if let Ok(event) = receiver.try_recv() {
-            println!("DEBUG: Received event: {:?}", event);
-            tracing::debug!("hotkey event received: {:?}", event);
-            hotkey_manager.handle_event(event);
+        // macOS: Pump the event loop to process global hotkey events
+        #[cfg(target_os = "macos")]
+        unsafe {
+            use cocoa::foundation::{NSAutoreleasePool, NSDate};
+
+            let pool = NSAutoreleasePool::new(nil);
+            let app = NSApp();
+            let distant_past = NSDate::distantPast(nil);
+
+            loop {
+                let event = app.nextEventMatchingMask_untilDate_inMode_dequeue_(
+                    std::u64::MAX,
+                    distant_past,
+                    cocoa::foundation::NSDefaultRunLoopMode,
+                    true,
+                );
+                if event == nil {
+                    break;
+                }
+                app.sendEvent_(event);
+            }
+
+            pool.drain();
         }
 
-        // Debug: print a heartbeat every 5 seconds to show we're polling
-        poll_count += 1;
-        if poll_count.is_multiple_of(500) {
-            println!("DEBUG: Event loop alive (poll #{})", poll_count);
+        // Poll for hotkey events
+        if let Ok(event) = receiver.try_recv() {
+            tracing::debug!("hotkey event received: {:?}", event);
+            hotkey_manager.handle_event(event);
         }
 
         // Check for shutdown signal
