@@ -8,16 +8,36 @@ Hold a hotkey, speak, release → text inserted at cursor. Privacy-first (100% l
 
 ## Quick Start
 
-### Prerequisites
+### Option 1: Download DMG (Easiest)
+
+**For end users - no build tools required:**
+
+1. **Download**: [Latest release](https://github.com/Automaat/whisper-hotkey/releases/latest) → `WhisperHotkey-*.dmg`
+2. **Install**: Open DMG, drag `WhisperHotkey.app` to `Applications`
+3. **Run**: Open from Applications
+4. **Permissions**: Grant Microphone + Accessibility when prompted
+5. **First run**: Downloads Whisper model (~466MB)
+
+**Usage:**
+
+- Default hotkey: `Ctrl+Option+Z`
+- Press and hold → speak → release
+- Text appears at cursor
+
+**Configuration:** `~/.whisper-hotkey/config.toml`
+
+---
+
+### Option 2: Build from Source
+
+**Prerequisites:**
 
 - **macOS** (M1/M2 or Intel)
 - **Rust/Cargo** (install: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`)
 - **mise** (optional, recommended: `curl https://mise.run | sh`)
 - **Permissions**: Microphone + Accessibility
 
-### Installation Options
-
-#### Option 1: Automated Installer (Recommended)
+#### 2a: Automated Installer
 
 ```bash
 # Clone repo
@@ -44,7 +64,7 @@ The installer will:
 ./scripts/uninstall.sh
 ```
 
-#### Option 2: Manual Build & Run
+#### 2b: Manual Build & Run
 
 ```bash
 # Clone repo

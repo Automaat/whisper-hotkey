@@ -1,0 +1,129 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  RUST_VERSION: "1.91"
+
+jobs:
+  create-release:
+    name: Create Release
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: jdx/mise-action@146a28175021df8ca24f8ee1828cc2a60f980bd5 # v3.5.1
+        with:
+          version: 2025.11.11
+
+      - name: Cache cargo registry
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo index
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo build
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Build release binary
+        run: mise exec -- cargo build --release
+        env:
+          GGML_NO_ACCELERATE: 1
+          WHISPER_NO_AVX: 1
+          WHISPER_NO_AVX2: 1
+          WHISPER_NO_FMA: 1
+          CFLAGS: "-march=armv8-a"
+          CXXFLAGS: "-march=armv8-a"
+
+      - name: Create .app bundle
+        run: ./scripts/create-app-bundle.sh
+
+      - name: Create DMG
+        run: ./scripts/create-dmg.sh ${{ steps.version.outputs.VERSION }}
+
+      - name: Calculate checksums
+        run: |
+          cd target/release
+          shasum -a 256 WhisperHotkey-${{ steps.version.outputs.VERSION }}.dmg > WhisperHotkey-${{ steps.version.outputs.VERSION }}.dmg.sha256
+          cat WhisperHotkey-${{ steps.version.outputs.VERSION }}.dmg.sha256
+
+      - name: Create release notes
+        id: release_notes
+        run: |
+          cat > release_notes.md <<'EOF'
+          # WhisperHotkey v${{ steps.version.outputs.VERSION }}
+
+          macOS voice-to-text app using local Whisper. Hold hotkey, speak, release → text inserted at cursor.
+
+          ## Installation
+
+          1. **Download**: `WhisperHotkey-${{ steps.version.outputs.VERSION }}.dmg`
+          2. **Open DMG**: Double-click to mount
+          3. **Install**: Drag `WhisperHotkey.app` to `Applications` folder
+          4. **Run**: Open from Applications
+          5. **Permissions**: Grant Microphone + Accessibility when prompted
+          6. **First run**: Downloads Whisper model (~466MB)
+
+          ## Usage
+
+          - **Default hotkey**: `Ctrl+Option+Z`
+          - Press and hold → speak → release
+          - Text appears at cursor
+
+          ## Configuration
+
+          - Edit: `~/.whisper-hotkey/config.toml`
+          - Change hotkey, model, performance settings
+          - Restart app after changes
+
+          ## Auto-Start
+
+          See [documentation](https://github.com/Automaat/whisper-hotkey#auto-start-at-login) for LaunchAgent setup.
+
+          ## Requirements
+
+          - macOS 11.0+ (Big Sur or later)
+          - Apple Silicon (M1/M2/M3) or Intel
+          - ~500MB disk space (~466MB for model)
+
+          ## Verification
+
+          ```bash
+          shasum -a 256 -c WhisperHotkey-${{ steps.version.outputs.VERSION }}.dmg.sha256
+          ```
+
+          ## Support
+
+          - [Documentation](https://github.com/Automaat/whisper-hotkey)
+          - [Issues](https://github.com/Automaat/whisper-hotkey/issues)
+          EOF
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@e7a8f85e1c67a31e6ed99a94b41bd0b71bbee6b8 # v2.2.0
+        with:
+          files: |
+            target/release/WhisperHotkey-${{ steps.version.outputs.VERSION }}.dmg
+            target/release/WhisperHotkey-${{ steps.version.outputs.VERSION }}.dmg.sha256
+          body_path: release_notes.md
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
