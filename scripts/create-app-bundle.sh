@@ -9,8 +9,13 @@ CONTENTS_DIR="$BUNDLE_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
 
-echo "🔨 Building release binary..."
-cargo build --release
+# Only build if binary doesn't exist or is older than source
+if [ ! -f "target/release/whisper-hotkey" ] || [ "src/" -nt "target/release/whisper-hotkey" ]; then
+    echo "🔨 Building release binary..."
+    cargo build --release
+else
+    echo "✅ Using existing release binary"
+fi
 
 echo "📦 Creating .app bundle structure..."
 rm -rf "$BUNDLE_DIR"

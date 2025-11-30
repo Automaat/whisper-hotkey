@@ -11,12 +11,14 @@ PLIST_DEST="$LAUNCHAGENTS_DIR/$PLIST_NAME"
 # Determine binary path
 if [ -f "target/release/whisper-hotkey" ]; then
     BINARY_PATH="$(pwd)/target/release/whisper-hotkey"
+elif [ -f "/Applications/WhisperHotkey.app/Contents/MacOS/WhisperHotkey" ]; then
+    BINARY_PATH="/Applications/WhisperHotkey.app/Contents/MacOS/WhisperHotkey"
 elif [ -f "/usr/local/bin/whisper-hotkey" ]; then
     BINARY_PATH="/usr/local/bin/whisper-hotkey"
 else
     echo "❌ Error: whisper-hotkey binary not found"
     echo "Build with: cargo build --release"
-    echo "Or install to: /usr/local/bin/whisper-hotkey"
+    echo "Or install to: /usr/local/bin/whisper-hotkey or /Applications/WhisperHotkey.app"
     exit 1
 fi
 
