@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Create DMG installer for whisper-hotkey
+# Create DMG installer for whisper-hotkey with visual drag-to-Applications interface
 
 APP_NAME="WhisperHotkey"
 VERSION="${1:-1.0.0}"
@@ -9,8 +9,18 @@ BUNDLE_DIR="target/release/$APP_NAME.app"
 DMG_NAME="WhisperHotkey-$VERSION.dmg"
 DMG_TEMP="target/dmg-temp"
 DMG_PATH="target/release/$DMG_NAME"
+BACKGROUND_DIR="resources/dmg"
 
 echo "📦 Creating DMG for $APP_NAME v$VERSION..."
+
+# Check for create-dmg tool
+if ! command -v create-dmg &> /dev/null; then
+    echo "⚠️  create-dmg not found. Install with: brew install create-dmg"
+    echo "📝 Falling back to basic DMG creation..."
+    USE_BASIC=true
+else
+    USE_BASIC=false
+fi
 
 # Build app bundle first
 if [ ! -d "$BUNDLE_DIR" ]; then
@@ -20,59 +30,57 @@ fi
 
 # Clean up previous DMG
 rm -rf "$DMG_TEMP" "$DMG_PATH"
-mkdir -p "$DMG_TEMP"
 
-echo "📋 Copying app bundle..."
-cp -r "$BUNDLE_DIR" "$DMG_TEMP/"
+if [ "$USE_BASIC" = true ]; then
+    # Basic DMG creation (fallback)
+    mkdir -p "$DMG_TEMP"
 
-echo "🔗 Creating Applications symlink..."
-ln -s /Applications "$DMG_TEMP/Applications"
+    echo "📋 Copying app bundle..."
+    cp -r "$BUNDLE_DIR" "$DMG_TEMP/"
 
-echo "📝 Creating README..."
-cat > "$DMG_TEMP/README.txt" <<EOF
-WhisperHotkey - Voice-to-Text for macOS
+    echo "🔗 Creating Applications symlink..."
+    ln -s /Applications "$DMG_TEMP/Applications"
 
-INSTALLATION:
-1. Drag WhisperHotkey.app to Applications folder
-2. Open WhisperHotkey from Applications
-3. Grant permissions:
-   - Microphone (System Settings → Privacy & Security)
-   - Accessibility (System Settings → Privacy & Security)
-4. First run downloads Whisper model (~466MB)
+    echo "💿 Creating DMG..."
+    # Use hdiutil to create DMG (built into macOS)
+    hdiutil create -volname "$APP_NAME" \
+        -srcfolder "$DMG_TEMP" \
+        -ov -format UDZO \
+        "$DMG_PATH"
 
-USAGE:
-- Default hotkey: Ctrl+Option+Z
-- Press and hold, speak, release
-- Text appears at cursor
+    # Clean up temp
+    rm -rf "$DMG_TEMP"
 
-CONFIG:
-- Location: ~/.whisper-hotkey/config.toml
-- Change hotkey, model, performance settings
+else
+    # Fancy DMG creation with visual installer
+    echo "🎨 Creating visual DMG installer..."
 
-AUTO-START:
-Run in Terminal:
-  /Applications/WhisperHotkey.app/Contents/MacOS/WhisperHotkey
+    # Create background if it doesn't exist
+    if [ ! -f "$BACKGROUND_DIR/background.png" ]; then
+        ./scripts/create-dmg-background.sh
+    fi
 
-Or setup LaunchAgent (requires git clone):
-  git clone https://github.com/Automaat/whisper-hotkey.git
-  cd whisper-hotkey
-  ./scripts/setup-launchagent.sh
+    mkdir -p "$DMG_TEMP"
+    cp -r "$BUNDLE_DIR" "$DMG_TEMP/"
 
-SUPPORT:
-https://github.com/Automaat/whisper-hotkey
+    # Create DMG with visual installer
+    create-dmg \
+        --volname "Whisper Hotkey" \
+        --volicon "resources/AppIcon.icns" \
+        --background "$BACKGROUND_DIR/background.png" \
+        --window-pos 200 120 \
+        --window-size 660 420 \
+        --icon-size 160 \
+        --icon "$APP_NAME.app" 180 190 \
+        --hide-extension "$APP_NAME.app" \
+        --app-drop-link 480 190 \
+        --hdiutil-quiet \
+        "$DMG_PATH" \
+        "$DMG_TEMP"
 
-LICENSE: MIT
-EOF
-
-echo "💿 Creating DMG..."
-# Use hdiutil to create DMG (built into macOS)
-hdiutil create -volname "$APP_NAME" \
-    -srcfolder "$DMG_TEMP" \
-    -ov -format UDZO \
-    "$DMG_PATH"
-
-# Clean up temp
-rm -rf "$DMG_TEMP"
+    # Clean up
+    rm -rf "$DMG_TEMP"
+fi
 
 echo ""
 echo "✅ DMG created: $DMG_PATH"

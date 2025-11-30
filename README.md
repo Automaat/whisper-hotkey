@@ -1,5 +1,7 @@
 # whisper-hotkey
 
+![Whisper Hotkey](resources/logo.png)
+
 macOS background app for system-wide voice-to-text via hotkey using local Whisper.
 
 Hold a hotkey, speak, release → text inserted at cursor. Privacy-first (100% local, no cloud).

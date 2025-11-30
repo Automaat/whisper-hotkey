@@ -120,7 +120,16 @@ jobs:
           1. **Download**: `WhisperHotkey-${{ steps.version.outputs.VERSION }}.dmg`
           2. **Open DMG**: Double-click to mount
           3. **Install**: Drag `WhisperHotkey.app` to `Applications` folder
-          4. **Run**: Open from Applications
+          4. **Bypass Gatekeeper** (first time only):
+             - Right-click `WhisperHotkey.app` in Applications
+             - Select "Open"
+             - Click "Open" in security dialog
+
+             Or via Terminal:
+             ```bash
+             xattr -d com.apple.quarantine /Applications/WhisperHotkey.app
+             open /Applications/WhisperHotkey.app
+             ```
           5. **Permissions**: Grant Microphone + Accessibility when prompted
           6. **First run**: Downloads Whisper model (~466MB)
 
