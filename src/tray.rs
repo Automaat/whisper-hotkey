@@ -68,6 +68,11 @@ impl TrayManager {
     pub fn update_icon_if_needed(&mut self) -> Result<()> {
         let new_state = *self.state.lock().unwrap();
         if new_state != self.current_icon_state {
+            tracing::debug!(
+                "tray icon state change: {:?} -> {:?}",
+                self.current_icon_state,
+                new_state
+            );
             let icon = Self::load_icon(new_state)?;
             self.tray
                 .set_icon(Some(icon))
