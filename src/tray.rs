@@ -66,30 +66,22 @@ impl TrayManager {
         };
 
         // Try to load from app bundle Resources folder first (for installed apps)
-        let icon_path = if let Ok(exe_path) = std::env::current_exe() {
-            // exe_path is something like: /Applications/WhisperHotkey.app/Contents/MacOS/WhisperHotkey
-            // We want: /Applications/WhisperHotkey.app/Contents/Resources/icon-32.png
-            if let Some(macos_dir) = exe_path.parent() {
-                if let Some(contents_dir) = macos_dir.parent() {
-                    let resources_path = contents_dir.join("Resources").join(icon_filename);
-                    if resources_path.exists() {
-                        resources_path
-                    } else {
-                        // Fallback to source directory (for development)
-                        std::path::PathBuf::from(format!("{}/{}", env!("CARGO_MANIFEST_DIR"), icon_filename))
-                    }
-                } else {
-                    // Fallback to source directory
-                    std::path::PathBuf::from(format!("{}/{}", env!("CARGO_MANIFEST_DIR"), icon_filename))
-                }
-            } else {
-                // Fallback to source directory
-                std::path::PathBuf::from(format!("{}/{}", env!("CARGO_MANIFEST_DIR"), icon_filename))
-            }
-        } else {
-            // Fallback to source directory
-            std::path::PathBuf::from(format!("{}/{}", env!("CARGO_MANIFEST_DIR"), icon_filename))
-        };
+        // exe_path is something like: /Applications/WhisperHotkey.app/Contents/MacOS/WhisperHotkey
+        // We want: /Applications/WhisperHotkey.app/Contents/Resources/icon-32.png
+        let icon_path = std::env::current_exe()
+            .ok()
+            .and_then(|exe_path| exe_path.parent().map(|p| p.to_path_buf()))
+            .and_then(|macos_dir| macos_dir.parent().map(|p| p.to_path_buf()))
+            .map(|contents_dir| contents_dir.join("Resources").join(icon_filename))
+            .filter(|path| path.exists())
+            .unwrap_or_else(|| {
+                // Fallback to source directory (for development)
+                std::path::PathBuf::from(format!(
+                    "{}/{}",
+                    env!("CARGO_MANIFEST_DIR"),
+                    icon_filename
+                ))
+            });
 
         tracing::debug!("loading icon for state {:?}: {:?}", state, icon_path);
 
