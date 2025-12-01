@@ -65,11 +65,28 @@ impl TrayManager {
             AppState::Processing => "icon-processing-32.png",
         };
 
-        let icon_path = format!("{}/{}", env!("CARGO_MANIFEST_DIR"), icon_filename);
-        tracing::debug!("loading icon for state {:?}: {}", state, icon_path);
+        // Try to load from app bundle Resources folder first (for installed apps)
+        // exe_path is something like: /Applications/WhisperHotkey.app/Contents/MacOS/WhisperHotkey
+        // We want: /Applications/WhisperHotkey.app/Contents/Resources/icon-32.png
+        let icon_path = std::env::current_exe()
+            .ok()
+            .and_then(|exe_path| exe_path.parent().map(|p| p.to_path_buf()))
+            .and_then(|macos_dir| macos_dir.parent().map(|p| p.to_path_buf()))
+            .map(|contents_dir| contents_dir.join("Resources").join(icon_filename))
+            .filter(|path| path.exists())
+            .unwrap_or_else(|| {
+                // Fallback to source directory (for development)
+                std::path::PathBuf::from(format!(
+                    "{}/{}",
+                    env!("CARGO_MANIFEST_DIR"),
+                    icon_filename
+                ))
+            });
+
+        tracing::debug!("loading icon for state {:?}: {:?}", state, icon_path);
 
         let image = image::open(&icon_path)
-            .with_context(|| format!("failed to load {}", icon_filename))?
+            .with_context(|| format!("failed to load {} from {:?}", icon_filename, icon_path))?
             .into_rgba8();
 
         let (width, height) = image.dimensions();
