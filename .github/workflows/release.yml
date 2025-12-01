@@ -35,27 +35,27 @@ jobs:
           if [ "${{ github.event_name }}" = "push" ]; then
             # Tag push - extract from ref
             VERSION="${GITHUB_REF#refs/tags/v}"
-            echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
-            echo "TAG_NAME=v$VERSION" >> $GITHUB_OUTPUT
+            echo "VERSION=$VERSION" >> "$GITHUB_OUTPUT"
+            echo "TAG_NAME=v$VERSION" >> "$GITHUB_OUTPUT"
           elif [ -n "${{ inputs.version }}" ]; then
             # Manual trigger with version
             VERSION="${{ inputs.version }}"
-            echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
-            echo "TAG_NAME=v$VERSION" >> $GITHUB_OUTPUT
+            echo "VERSION=$VERSION" >> "$GITHUB_OUTPUT"
+            echo "TAG_NAME=v$VERSION" >> "$GITHUB_OUTPUT"
           else
             # Auto-increment minor version
             LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
             LATEST_VERSION="${LATEST_TAG#v}"
 
             # Parse version (semver: MAJOR.MINOR.PATCH)
-            IFS='.' read -r MAJOR MINOR PATCH <<< "$LATEST_VERSION"
+            IFS='.' read -r MAJOR MINOR _ <<< "$LATEST_VERSION"
 
             # Increment minor, reset patch
             NEW_MINOR=$((MINOR + 1))
             NEW_VERSION="$MAJOR.$NEW_MINOR.0"
 
-            echo "VERSION=$NEW_VERSION" >> $GITHUB_OUTPUT
-            echo "TAG_NAME=v$NEW_VERSION" >> $GITHUB_OUTPUT
+            echo "VERSION=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+            echo "TAG_NAME=v$NEW_VERSION" >> "$GITHUB_OUTPUT"
             echo "Previous: $LATEST_TAG → New: v$NEW_VERSION"
           fi
 
