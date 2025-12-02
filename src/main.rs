@@ -139,7 +139,6 @@ async fn main() -> Result<()> {
 
     let receiver = GlobalHotKeyEvent::receiver();
     let mut config = config; // Make config mutable for updates
-    let mut should_quit = false;
 
     // Helper to save config, log, and update menu after config changes
     fn save_and_update(
@@ -161,9 +160,6 @@ async fn main() -> Result<()> {
     }
 
     loop {
-        if should_quit {
-            break;
-        }
         // macOS: Pump the event loop to process global hotkey events
         #[cfg(target_os = "macos")]
         unsafe {
@@ -318,7 +314,7 @@ async fn main() -> Result<()> {
                 tray::TrayCommand::Quit => {
                     tracing::info!("quit requested from menubar");
                     println!("\nShutting down from menubar...");
-                    should_quit = true;
+                    break;
                 }
             }
         }
