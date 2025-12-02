@@ -362,4 +362,56 @@ log_path = "/tmp/crash.log"
         assert_eq!(deserialized.model.language, original.model.language);
         assert_eq!(deserialized.telemetry.enabled, original.telemetry.enabled);
     }
+
+    #[test]
+    fn test_default_threads() {
+        assert_eq!(default_threads(), 4);
+    }
+
+    #[test]
+    fn test_default_beam_size() {
+        assert_eq!(default_beam_size(), 5);
+    }
+
+    #[test]
+    fn test_default_language() {
+        assert_eq!(default_language(), None);
+    }
+
+    #[test]
+    fn test_config_path() {
+        let path = Config::config_path().unwrap();
+        assert!(path.to_string_lossy().contains(".whisper-hotkey.toml"));
+    }
+
+    #[test]
+    fn test_get_config_path() {
+        let path = Config::get_config_path().unwrap();
+        assert!(path.to_string_lossy().contains(".whisper-hotkey.toml"));
+    }
+
+    #[test]
+    fn test_parse_config_with_language() {
+        let toml = r#"
+[hotkey]
+modifiers = ["Control"]
+key = "M"
+
+[audio]
+buffer_size = 512
+sample_rate = 16000
+
+[model]
+name = "tiny"
+path = "/tmp/tiny.bin"
+preload = true
+language = "en"
+
+[telemetry]
+enabled = true
+log_path = "/tmp/crash.log"
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.model.language, Some("en".to_string()));
+    }
 }

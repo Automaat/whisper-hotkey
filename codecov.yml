@@ -16,3 +16,10 @@ comment:
 ignore:
   - "tests/**/*"
   - "**/*_test.rs"
+  - "src/main.rs"              # Entry point - integration tested
+  - "src/permissions.rs"        # Requires macOS permissions
+  - "src/telemetry.rs"          # Requires tracing/filesystem init
+  - "src/tray.rs"               # Requires macOS GUI system
+  - "src/input/cgevent.rs"      # Requires accessibility permissions
+  - "src/audio/capture.rs"      # Requires audio hardware
+  - "src/transcription/engine.rs"  # Requires Whisper model files

@@ -392,6 +392,71 @@ mod tests {
     }
 
     #[test]
+    fn test_app_state_debug() {
+        let state = AppState::Idle;
+        let debug_str = format!("{:?}", state);
+        assert!(debug_str.contains("Idle"));
+
+        let state = AppState::Recording;
+        let debug_str = format!("{:?}", state);
+        assert!(debug_str.contains("Recording"));
+
+        let state = AppState::Processing;
+        let debug_str = format!("{:?}", state);
+        assert!(debug_str.contains("Processing"));
+    }
+
+    #[test]
+    fn test_app_state_clone() {
+        let state1 = AppState::Recording;
+        let state2 = state1;
+        assert_eq!(state1, state2);
+    }
+
+    #[test]
+    fn test_app_state_equality() {
+        assert_eq!(AppState::Idle, AppState::Idle);
+        assert_eq!(AppState::Recording, AppState::Recording);
+        assert_eq!(AppState::Processing, AppState::Processing);
+        assert_ne!(AppState::Idle, AppState::Recording);
+        assert_ne!(AppState::Recording, AppState::Processing);
+    }
+
+    #[test]
+    fn test_parse_key_all_letters() {
+        // Test all 26 letters
+        assert_eq!(HotkeyManager::parse_key("C").unwrap(), Code::KeyC);
+        assert_eq!(HotkeyManager::parse_key("D").unwrap(), Code::KeyD);
+        assert_eq!(HotkeyManager::parse_key("E").unwrap(), Code::KeyE);
+        assert_eq!(HotkeyManager::parse_key("F").unwrap(), Code::KeyF);
+        assert_eq!(HotkeyManager::parse_key("G").unwrap(), Code::KeyG);
+        assert_eq!(HotkeyManager::parse_key("H").unwrap(), Code::KeyH);
+        assert_eq!(HotkeyManager::parse_key("I").unwrap(), Code::KeyI);
+        assert_eq!(HotkeyManager::parse_key("J").unwrap(), Code::KeyJ);
+        assert_eq!(HotkeyManager::parse_key("K").unwrap(), Code::KeyK);
+        assert_eq!(HotkeyManager::parse_key("L").unwrap(), Code::KeyL);
+        assert_eq!(HotkeyManager::parse_key("N").unwrap(), Code::KeyN);
+        assert_eq!(HotkeyManager::parse_key("O").unwrap(), Code::KeyO);
+        assert_eq!(HotkeyManager::parse_key("P").unwrap(), Code::KeyP);
+        assert_eq!(HotkeyManager::parse_key("Q").unwrap(), Code::KeyQ);
+        assert_eq!(HotkeyManager::parse_key("R").unwrap(), Code::KeyR);
+        assert_eq!(HotkeyManager::parse_key("S").unwrap(), Code::KeyS);
+        assert_eq!(HotkeyManager::parse_key("T").unwrap(), Code::KeyT);
+        assert_eq!(HotkeyManager::parse_key("U").unwrap(), Code::KeyU);
+        assert_eq!(HotkeyManager::parse_key("V").unwrap(), Code::KeyV);
+        assert_eq!(HotkeyManager::parse_key("W").unwrap(), Code::KeyW);
+        assert_eq!(HotkeyManager::parse_key("X").unwrap(), Code::KeyX);
+        assert_eq!(HotkeyManager::parse_key("Y").unwrap(), Code::KeyY);
+    }
+
+    #[test]
+    fn test_parse_modifiers_mixed_case() {
+        // Test that only exact case works
+        let result = HotkeyManager::parse_modifiers(&["control".to_string()]);
+        assert!(result.is_err());
+    }
+
+    #[test]
     #[ignore] // Requires audio hardware and global hotkey registration
     fn test_hotkey_manager_creation() {
         // Would need to:

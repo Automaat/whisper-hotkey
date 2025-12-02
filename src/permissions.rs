@@ -63,3 +63,34 @@ pub fn request_all_permissions() -> Result<()> {
     tracing::info!("all permissions checked");
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_check_microphone_permission() {
+        let result = check_microphone_permission();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_check_input_monitoring_permission() {
+        let result = check_input_monitoring_permission();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    #[ignore] // Requires accessibility permissions on macOS
+    fn test_check_accessibility_permission() {
+        let result = check_accessibility_permission();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    #[ignore] // Requires permissions on macOS
+    fn test_request_all_permissions() {
+        let result = request_all_permissions();
+        assert!(result.is_ok());
+    }
+}

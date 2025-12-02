@@ -420,4 +420,66 @@ mod tests {
         assert_send::<TranscriptionEngine>();
         assert_sync::<TranscriptionEngine>();
     }
+
+    #[test]
+    fn test_transcription_error_display() {
+        let error = TranscriptionError::ModelLoad {
+            path: "/tmp/model.bin".to_string(),
+            source: anyhow::anyhow!("file not found"),
+        };
+        let display = format!("{}", error);
+        assert!(display.contains("failed to load whisper model"));
+        assert!(display.contains("/tmp/model.bin"));
+
+        let error = TranscriptionError::StateCreation;
+        let display = format!("{}", error);
+        assert_eq!(display, "failed to create whisper state");
+    }
+
+    #[test]
+    fn test_transcription_error_debug() {
+        let error = TranscriptionError::StateCreation;
+        let debug = format!("{:?}", error);
+        assert!(debug.contains("StateCreation"));
+    }
+
+    #[test]
+    fn test_new_with_zero_threads() {
+        let path = Path::new("/tmp/dummy.bin");
+        let result = TranscriptionEngine::new(path, 0, 5, None);
+        assert!(result.is_err());
+        match result {
+            Err(TranscriptionError::ModelLoad { source, .. }) => {
+                assert!(source.to_string().contains("threads must be > 0"));
+            }
+            _ => panic!("Expected ModelLoad error"),
+        }
+    }
+
+    #[test]
+    fn test_new_with_zero_beam_size() {
+        let path = Path::new("/tmp/dummy.bin");
+        let result = TranscriptionEngine::new(path, 4, 0, None);
+        assert!(result.is_err());
+        match result {
+            Err(TranscriptionError::ModelLoad { source, .. }) => {
+                assert!(source.to_string().contains("beam_size must be > 0"));
+            }
+            _ => panic!("Expected ModelLoad error"),
+        }
+    }
+
+    #[test]
+    fn test_new_with_valid_params() {
+        let path = Path::new("/tmp/nonexistent_but_valid_params.bin");
+        let result = TranscriptionEngine::new(path, 4, 5, Some("en".to_string()));
+        // Will fail because file doesn't exist, but params are validated first
+        assert!(result.is_err());
+        match result {
+            Err(TranscriptionError::ModelLoad { .. }) => {
+                // Expected - file doesn't exist
+            }
+            _ => panic!("Expected ModelLoad error"),
+        }
+    }
 }
