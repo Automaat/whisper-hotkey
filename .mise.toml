@@ -27,3 +27,7 @@ run = "cargo test"
 [tasks.fmt]
 description = "Format code"
 run = "cargo fmt --all"
+
+[tasks.coverage]
+description = "Generate code coverage"
+run = "cargo llvm-cov --lcov --output-path lcov.info"
