@@ -96,10 +96,15 @@ jobs:
           WHISPER_NO_FMA: 1
           CFLAGS: "-march=armv8-a"
           CXXFLAGS: "-march=armv8-a"
+      - name: Cache cargo tools
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cargo/bin
+          key: ${{ runner.os }}-cargo-tools-llvm-cov-${{ hashFiles('**/Cargo.lock') }}
       - name: Install llvm-tools-preview
         run: rustup component add llvm-tools-preview
       - name: Install cargo-llvm-cov
-        run: cargo install cargo-llvm-cov
+        run: which cargo-llvm-cov || cargo install cargo-llvm-cov
       - name: Generate coverage
         run: mise exec -- cargo llvm-cov --lcov --output-path lcov.info
         env:
@@ -110,7 +115,7 @@ jobs:
           CFLAGS: "-march=armv8-a"
           CXXFLAGS: "-march=armv8-a"
       - name: Upload to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7 # v5.5.1
         with:
           files: lcov.info
           fail_ci_if_error: true
