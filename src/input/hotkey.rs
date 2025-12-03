@@ -30,6 +30,9 @@ pub struct HotkeyManager {
 
 impl HotkeyManager {
     /// Create and register global hotkey from config
+    ///
+    /// # Errors
+    /// Returns error if hotkey manager creation fails, unknown modifiers/keys, or registration fails
     pub fn new(
         config: &HotkeyConfig,
         audio: Arc<Mutex<AudioCapture>>,

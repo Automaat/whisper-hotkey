@@ -5,6 +5,9 @@ use std::path::PathBuf;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 /// Initialize telemetry logging
+///
+/// # Errors
+/// Returns error if log directory creation or file opening fails
 pub fn init(enabled: bool, log_path: &str) -> Result<()> {
     if !enabled {
         // Basic stdout logging only

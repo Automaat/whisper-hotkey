@@ -28,6 +28,10 @@ pub struct AudioCapture {
 }
 
 impl AudioCapture {
+    /// Creates a new audio capture instance
+    ///
+    /// # Errors
+    /// Returns error if default audio device is unavailable or stream creation fails
     pub fn new(_config: &AudioConfig) -> Result<Self> {
         info!("initializing audio capture");
 
@@ -104,6 +108,10 @@ impl AudioCapture {
         })
     }
 
+    /// Starts recording audio
+    ///
+    /// # Errors
+    /// Returns error if ring buffer flush fails
     pub fn start_recording(&mut self) -> Result<()> {
         let _span = tracing::debug_span!("start_recording").entered();
         let start = std::time::Instant::now();
@@ -120,6 +128,10 @@ impl AudioCapture {
         Ok(())
     }
 
+    /// Stops recording and returns captured samples (16kHz mono f32)
+    ///
+    /// # Errors
+    /// Returns error if sample conversion fails
     pub fn stop_recording(&mut self) -> Result<Vec<f32>> {
         let _span = tracing::debug_span!("stop_recording").entered();
         let start_total = std::time::Instant::now();
@@ -263,6 +275,9 @@ impl AudioCapture {
     }
 
     /// Save samples to WAV file for debugging
+    ///
+    /// # Errors
+    /// Returns error if directory creation or file write fails
     pub fn save_wav_debug(samples: &[f32], path: &Path) -> Result<()> {
         debug!("saving WAV debug file: {:?}", path);
 

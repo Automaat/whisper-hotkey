@@ -87,6 +87,9 @@ pub struct TelemetryConfig {
 
 impl Config {
     /// Load config from ~/.whisper-hotkey.toml
+    ///
+    /// # Errors
+    /// Returns error if config file doesn't exist, is invalid TOML, or path expansion fails
     pub fn load() -> Result<Self> {
         let config_path = Self::config_path()?;
 
@@ -132,6 +135,9 @@ log_path = "~/.whisper-hotkey/crash.log"
     }
 
     /// Save config to ~/.whisper-hotkey.toml
+    ///
+    /// # Errors
+    /// Returns error if TOML serialization fails or file write fails
     pub fn save(&self) -> Result<()> {
         let config_path = Self::config_path()?;
         let contents =
@@ -141,11 +147,17 @@ log_path = "~/.whisper-hotkey/crash.log"
     }
 
     /// Get config file path for external opening
+    ///
+    /// # Errors
+    /// Returns error if HOME environment variable is not set
     pub fn get_config_path() -> Result<PathBuf> {
         Self::config_path()
     }
 
     /// Expand ~ in paths to home directory
+    ///
+    /// # Errors
+    /// Returns error if HOME environment variable is not set
     #[allow(dead_code)] // Used in Phase 3+
     pub fn expand_path(path: &str) -> Result<PathBuf> {
         if let Some(stripped) = path.strip_prefix("~/") {

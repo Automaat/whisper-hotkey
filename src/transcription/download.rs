@@ -11,6 +11,9 @@ fn model_filename(model_name: &str) -> String {
 }
 
 /// Ensures the model is downloaded, returns true if downloaded, false if already existed
+///
+/// # Errors
+/// Returns error if directory creation, HTTP download, or file write fails
 pub fn ensure_model_downloaded(model_name: &str, model_path: &Path) -> Result<bool> {
     if model_path.exists() {
         tracing::info!(

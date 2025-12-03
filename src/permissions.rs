@@ -1,6 +1,9 @@
 use anyhow::{bail, Result};
 
 /// Check and request microphone permission
+///
+/// # Errors
+/// Currently never returns error (permission check deferred to first audio capture)
 pub fn check_microphone_permission() -> Result<()> {
     tracing::info!("checking microphone permission");
 
@@ -12,6 +15,9 @@ pub fn check_microphone_permission() -> Result<()> {
 }
 
 /// Check and request accessibility permission (for text insertion)
+///
+/// # Errors
+/// Returns error if accessibility permission is denied (macOS only)
 pub fn check_accessibility_permission() -> Result<()> {
     tracing::info!("checking accessibility permission");
 
@@ -33,6 +39,9 @@ pub fn check_accessibility_permission() -> Result<()> {
 }
 
 /// Check Input Monitoring permission (for global hotkeys)
+///
+/// # Errors
+/// Currently never returns error (warns user to check permission manually)
 pub fn check_input_monitoring_permission() -> Result<()> {
     tracing::info!("checking input monitoring permission");
 
@@ -57,6 +66,9 @@ pub fn check_input_monitoring_permission() -> Result<()> {
 }
 
 /// Request all required permissions
+///
+/// # Errors
+/// Returns error if any permission check fails
 pub fn request_all_permissions() -> Result<()> {
     tracing::info!("requesting all permissions");
 
