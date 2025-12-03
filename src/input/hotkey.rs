@@ -71,23 +71,31 @@ impl HotkeyManager {
             AppState::Idle => {
                 info!("🎤 Hotkey pressed - recording started");
                 *state = AppState::Recording;
+                drop(state);
 
                 // Start audio recording with error recovery
-                if let Err(e) = self
+                let recording_result = self
                     .audio
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .start_recording()
-                {
+                    .start_recording();
+
+                if let Err(e) = recording_result {
                     warn!(error = %e, "❌ Failed to start recording");
+                    let mut state = self
+                        .state
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
                     *state = AppState::Idle;
                     // Continue running - this is a transient error, user can try again
                 }
             }
             AppState::Recording => {
+                drop(state);
                 debug!("hotkey pressed while recording (ignored)");
             }
             AppState::Processing => {
+                drop(state);
                 debug!("hotkey pressed while processing (ignored)");
             }
         }
@@ -103,14 +111,16 @@ impl HotkeyManager {
             AppState::Recording => {
                 info!("⏹️  Hotkey released - processing audio");
                 *state = AppState::Processing;
+                drop(state);
 
                 // Stop audio recording and get samples
-                match self
+                let stop_result = self
                     .audio
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .stop_recording()
-                {
+                    .stop_recording();
+
+                match stop_result {
                     Ok(samples) => {
                         // Duration calculation: usize → f64 for sample_count / sample_rate
                         // Safe: even 1hr audio = 57.6M samples, well within f64 precision
@@ -196,21 +206,31 @@ impl HotkeyManager {
                             });
                         } else {
                             warn!("⚠️  Transcription engine not available");
+                            let mut state = self
+                                .state
+                                .lock()
+                                .unwrap_or_else(std::sync::PoisonError::into_inner);
                             *state = AppState::Idle;
                             info!("✓ Ready for next recording (transcription disabled)");
                         }
                     }
                     Err(e) => {
                         warn!(error = %e, "❌ Failed to stop recording: {}", e);
+                        let mut state = self
+                            .state
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner);
                         *state = AppState::Idle;
                         // Continue running - this is a transient error, user can try again
                     }
                 }
             }
             AppState::Idle => {
+                drop(state);
                 debug!("hotkey released while idle (ignored)");
             }
             AppState::Processing => {
+                drop(state);
                 debug!("hotkey released while processing (ignored)");
             }
         }
