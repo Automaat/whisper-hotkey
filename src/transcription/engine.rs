@@ -4,29 +4,41 @@ use std::sync::{Arc, Mutex};
 use thiserror::Error;
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
+/// Errors that can occur during transcription
 #[derive(Debug, Error)]
 pub enum TranscriptionError {
+    /// Failed to load Whisper model
     #[error("failed to load whisper model from {path}: {source}")]
     ModelLoad { path: String, source: anyhow::Error },
 
+    /// Failed to create Whisper inference state
     #[error("failed to create whisper state")]
     #[allow(dead_code)] // Used in Phase 5
     StateCreation,
 
+    /// Transcription inference failed
     #[error("failed to transcribe audio")]
     Transcription(#[from] anyhow::Error),
 }
 
+/// Whisper transcription engine
 pub struct TranscriptionEngine {
+    /// Whisper context (thread-safe)
     #[allow(dead_code)] // Used in transcribe() method (Phase 5)
     ctx: Arc<Mutex<WhisperContext>>,
+    /// Number of CPU threads for inference
     threads: i32,
+    /// Beam search width
     beam_size: i32,
+    /// Language code (None = auto-detect)
     language: Option<String>,
 }
 
 impl TranscriptionEngine {
     /// Creates a new `TranscriptionEngine` by loading the model from the given path
+    ///
+    /// # Errors
+    /// Returns error if model file doesn't exist, is invalid, or if threads/beam_size exceed i32::MAX
     pub fn new(
         model_path: &Path,
         threads: usize,
@@ -91,6 +103,9 @@ impl TranscriptionEngine {
     }
 
     /// Transcribes audio samples (16kHz mono f32) to text with language auto-detection
+    ///
+    /// # Errors
+    /// Returns error if Whisper inference fails or mutex is poisoned
     #[allow(dead_code)] // Used in Phase 5
     pub fn transcribe(&self, audio_data: &[f32]) -> Result<String, TranscriptionError> {
         let _span = tracing::debug_span!("transcription", samples = audio_data.len()).entered();

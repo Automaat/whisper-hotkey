@@ -3,45 +3,63 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
+/// Application configuration
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Config {
+    /// Hotkey configuration
     #[allow(dead_code)] // Used in Phase 2+
     pub hotkey: HotkeyConfig,
+    /// Audio capture configuration
     #[allow(dead_code)] // Used in Phase 3+
     pub audio: AudioConfig,
+    /// Whisper model configuration
     #[allow(dead_code)] // Used in Phase 4+
     pub model: ModelConfig,
+    /// Telemetry configuration
     pub telemetry: TelemetryConfig,
 }
 
+/// Hotkey configuration
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct HotkeyConfig {
+    /// Modifier keys (e.g., ["Command", "Shift"])
     #[allow(dead_code)] // Used in Phase 2
     pub modifiers: Vec<String>,
+    /// Main key (e.g., "V")
     #[allow(dead_code)] // Used in Phase 2
     pub key: String,
 }
 
+/// Audio capture configuration
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct AudioConfig {
+    /// Ring buffer size in samples
     #[allow(dead_code)] // Used in Phase 3
     pub buffer_size: usize,
+    /// Sample rate in Hz
     #[allow(dead_code)] // Used in Phase 3
     pub sample_rate: u32,
 }
 
+/// Whisper model configuration
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ModelConfig {
+    /// Model name (e.g., "base.en")
     #[allow(dead_code)] // Used in Phase 4
     pub name: String,
+    /// Path to model file
     #[allow(dead_code)] // Used in Phase 4
     pub path: String,
+    /// Preload model at startup
     #[allow(dead_code)] // Used in Phase 4
     pub preload: bool,
+    /// Number of CPU threads for inference
     #[serde(default = "default_threads")]
     pub threads: usize,
+    /// Beam search width (higher = slower but more accurate)
     #[serde(default = "default_beam_size")]
     pub beam_size: usize,
+    /// Language code (None = auto-detect)
     #[serde(default = "default_language")]
     pub language: Option<String>,
 }
@@ -58,9 +76,12 @@ const fn default_language() -> Option<String> {
     None // Auto-detect by default
 }
 
+/// Telemetry and crash logging configuration
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct TelemetryConfig {
+    /// Enable crash logging
     pub enabled: bool,
+    /// Path to log file
     pub log_path: String,
 }
 

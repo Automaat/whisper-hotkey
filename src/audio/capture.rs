@@ -12,12 +12,18 @@ use tracing::{debug, info, warn};
 
 use crate::config::AudioConfig;
 
+/// Audio capture using CoreAudio/CPAL
 pub struct AudioCapture {
+    /// Audio stream (kept alive to prevent drop)
     #[allow(dead_code)] // Kept alive to prevent stream drop
     stream: Option<cpal::Stream>,
+    /// Ring buffer consumer for reading captured samples
     ring_buffer_consumer: HeapCons<f32>,
+    /// Recording state flag
     is_recording: Arc<AtomicBool>,
+    /// Device sample rate in Hz
     device_sample_rate: u32,
+    /// Number of audio channels
     device_channels: u16,
 }
 
