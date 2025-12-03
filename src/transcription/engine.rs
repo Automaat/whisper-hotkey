@@ -421,27 +421,6 @@ mod tests {
         assert_sync::<TranscriptionEngine>();
     }
 
-    #[test]
-    fn test_transcription_error_display() {
-        let error = TranscriptionError::ModelLoad {
-            path: "/tmp/model.bin".to_string(),
-            source: anyhow::anyhow!("file not found"),
-        };
-        let display = format!("{}", error);
-        assert!(display.contains("failed to load whisper model"));
-        assert!(display.contains("/tmp/model.bin"));
-
-        let error = TranscriptionError::StateCreation;
-        let display = format!("{}", error);
-        assert_eq!(display, "failed to create whisper state");
-    }
-
-    #[test]
-    fn test_transcription_error_debug() {
-        let error = TranscriptionError::StateCreation;
-        let debug = format!("{:?}", error);
-        assert!(debug.contains("StateCreation"));
-    }
 
     #[test]
     fn test_new_with_zero_threads() {

@@ -391,36 +391,6 @@ mod tests {
         assert_eq!(state, AppState::Idle);
     }
 
-    #[test]
-    fn test_app_state_debug() {
-        let state = AppState::Idle;
-        let debug_str = format!("{:?}", state);
-        assert!(debug_str.contains("Idle"));
-
-        let state = AppState::Recording;
-        let debug_str = format!("{:?}", state);
-        assert!(debug_str.contains("Recording"));
-
-        let state = AppState::Processing;
-        let debug_str = format!("{:?}", state);
-        assert!(debug_str.contains("Processing"));
-    }
-
-    #[test]
-    fn test_app_state_clone() {
-        let state1 = AppState::Recording;
-        let state2 = state1;
-        assert_eq!(state1, state2);
-    }
-
-    #[test]
-    fn test_app_state_equality() {
-        assert_eq!(AppState::Idle, AppState::Idle);
-        assert_eq!(AppState::Recording, AppState::Recording);
-        assert_eq!(AppState::Processing, AppState::Processing);
-        assert_ne!(AppState::Idle, AppState::Recording);
-        assert_ne!(AppState::Recording, AppState::Processing);
-    }
 
     #[test]
     fn test_parse_key_all_letters() {

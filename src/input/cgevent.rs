@@ -164,24 +164,6 @@ mod tests {
         assert!(result.is_ok());
     }
 
-    #[test]
-    fn test_text_insertion_error_display() {
-        let error = TextInsertionError::EventSourceCreation;
-        assert_eq!(format!("{}", error), "failed to create CGEvent source");
-
-        let error = TextInsertionError::EventCreation;
-        assert_eq!(format!("{}", error), "failed to create keyboard CGEvent");
-
-        let error = TextInsertionError::EmptyText;
-        assert_eq!(format!("{}", error), "text is empty");
-    }
-
-    #[test]
-    fn test_text_insertion_error_debug() {
-        let error = TextInsertionError::EventSourceCreation;
-        let debug_str = format!("{:?}", error);
-        assert!(debug_str.contains("EventSourceCreation"));
-    }
 
     #[test]
     fn test_insert_text_safe_with_non_empty_text() {

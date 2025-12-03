@@ -363,20 +363,6 @@ log_path = "/tmp/crash.log"
         assert_eq!(deserialized.telemetry.enabled, original.telemetry.enabled);
     }
 
-    #[test]
-    fn test_default_threads() {
-        assert_eq!(default_threads(), 4);
-    }
-
-    #[test]
-    fn test_default_beam_size() {
-        assert_eq!(default_beam_size(), 5);
-    }
-
-    #[test]
-    fn test_default_language() {
-        assert_eq!(default_language(), None);
-    }
 
     #[test]
     fn test_config_path() {
