@@ -391,7 +391,6 @@ mod tests {
         assert_eq!(state, AppState::Idle);
     }
 
-
     #[test]
     fn test_parse_key_all_letters() {
         // Test all 26 letters

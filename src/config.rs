@@ -363,7 +363,6 @@ log_path = "/tmp/crash.log"
         assert_eq!(deserialized.telemetry.enabled, original.telemetry.enabled);
     }
 
-
     #[test]
     fn test_config_path() {
         let path = Config::config_path().unwrap();

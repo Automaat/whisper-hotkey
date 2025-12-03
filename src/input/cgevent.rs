@@ -164,7 +164,6 @@ mod tests {
         assert!(result.is_ok());
     }
 
-
     #[test]
     fn test_insert_text_safe_with_non_empty_text() {
         // This will fail on systems without accessibility permissions

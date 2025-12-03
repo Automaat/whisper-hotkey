@@ -421,7 +421,6 @@ mod tests {
         assert_sync::<TranscriptionEngine>();
     }
 
-
     #[test]
     fn test_new_with_zero_threads() {
         let path = Path::new("/tmp/dummy.bin");
