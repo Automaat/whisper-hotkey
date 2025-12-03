@@ -6,11 +6,11 @@ use tracing::{debug, error, info};
 /// Text insertion errors
 #[derive(Debug, Error)]
 pub enum TextInsertionError {
-    /// Failed to create CGEvent source
+    /// Failed to create `CGEvent` source
     #[error("failed to create CGEvent source")]
     EventSourceCreation,
 
-    /// Failed to create keyboard CGEvent
+    /// Failed to create keyboard `CGEvent`
     #[error("failed to create keyboard CGEvent")]
     EventCreation,
 

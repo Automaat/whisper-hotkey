@@ -140,85 +140,8 @@ impl HotkeyManager {
                             samples.len()
                         );
 
-                        // Save WAV debug file with error recovery
-                        let timestamp = std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_else(|_| std::time::Duration::from_secs(0))
-                            .as_secs();
-                        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_owned());
-                        let debug_path = std::path::PathBuf::from(home)
-                            .join(".whisper-hotkey")
-                            .join("debug")
-                            .join(format!("recording_{timestamp}.wav"));
-
-                        if let Err(e) = AudioCapture::save_wav_debug(&samples, &debug_path) {
-                            warn!(error = %e, path = ?debug_path, "failed to save debug WAV");
-                        } else {
-                            debug!(path = ?debug_path, "saved debug WAV");
-                        }
-
-                        // Phase 5 & 6: Transcription + Text Insertion (background thread with error recovery)
-                        if let Some(engine) = &self.transcription {
-                            let engine = Arc::clone(engine);
-                            let state_arc = Arc::clone(&self.state);
-
-                            std::thread::spawn(move || {
-                                match engine.transcribe(&samples) {
-                                    Ok(text) => {
-                                        let text_preview: String = text.chars().take(50).collect();
-                                        info!(
-                                            text_len = text.len(),
-                                            text_preview = %text_preview,
-                                            "✨ Transcription: \"{}{}\"",
-                                            text_preview,
-                                            if text.len() > 50 { "..." } else { "" }
-                                        );
-
-                                        // Insert text at cursor, only if non-empty
-                                        if text.is_empty() {
-                                            info!("🔇 No speech detected (silence or noise)");
-                                        } else {
-                                            if cgevent::insert_text_safe(&text) {
-                                                info!(
-                                                    text_len = text.len(),
-                                                    "✅ Inserted {} chars",
-                                                    text.len()
-                                                );
-                                            } else {
-                                                warn!(
-                                                    text_len = text.len(),
-                                                    text_preview = %text_preview,
-                                                    "❌ Text insertion failed - check permissions"
-                                                );
-                                            }
-                                        }
-                                    }
-                                    Err(e) => {
-                                        warn!(
-                                            error = %e,
-                                            sample_count = samples.len(),
-                                            "❌ Transcription failed: {}",
-                                            e
-                                        );
-                                    }
-                                }
-
-                                // Set state to Idle after processing (always recover)
-                                let mut state = state_arc
-                                    .lock()
-                                    .unwrap_or_else(std::sync::PoisonError::into_inner);
-                                *state = AppState::Idle;
-                                info!("✓ Ready for next recording");
-                            });
-                        } else {
-                            warn!("⚠️  Transcription engine not available");
-                            let mut state = self
-                                .state
-                                .lock()
-                                .unwrap_or_else(std::sync::PoisonError::into_inner);
-                            *state = AppState::Idle;
-                            info!("✓ Ready for next recording (transcription disabled)");
-                        }
+                        Self::save_debug_wav(&samples);
+                        self.process_transcription(samples);
                     }
                     Err(e) => {
                         warn!(error = %e, "❌ Failed to stop recording: {}", e);
@@ -239,6 +162,86 @@ impl HotkeyManager {
                 drop(state);
                 debug!("hotkey released while processing (ignored)");
             }
+        }
+    }
+
+    /// Save debug WAV file with error recovery
+    fn save_debug_wav(samples: &[f32]) {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_else(|_| std::time::Duration::from_secs(0))
+            .as_secs();
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_owned());
+        let debug_path = std::path::PathBuf::from(home)
+            .join(".whisper-hotkey")
+            .join("debug")
+            .join(format!("recording_{timestamp}.wav"));
+
+        if let Err(e) = AudioCapture::save_wav_debug(samples, &debug_path) {
+            warn!(error = %e, path = ?debug_path, "failed to save debug WAV");
+        } else {
+            debug!(path = ?debug_path, "saved debug WAV");
+        }
+    }
+
+    /// Process transcription and text insertion in background thread
+    fn process_transcription(&self, samples: Vec<f32>) {
+        if let Some(engine) = &self.transcription {
+            let engine = Arc::clone(engine);
+            let state_arc = Arc::clone(&self.state);
+
+            std::thread::spawn(move || {
+                match engine.transcribe(&samples) {
+                    Ok(text) => {
+                        let text_preview: String = text.chars().take(50).collect();
+                        info!(
+                            text_len = text.len(),
+                            text_preview = %text_preview,
+                            "✨ Transcription: \"{}{}\"",
+                            text_preview,
+                            if text.len() > 50 { "..." } else { "" }
+                        );
+
+                        // Insert text at cursor, only if non-empty
+                        if text.is_empty() {
+                            info!("🔇 No speech detected (silence or noise)");
+                        } else if cgevent::insert_text_safe(&text) {
+                            info!(
+                                text_len = text.len(),
+                                "✅ Inserted {} chars",
+                                text.len()
+                            );
+                        } else {
+                            warn!(
+                                text_len = text.len(),
+                                text_preview = %text_preview,
+                                "❌ Text insertion failed - check permissions"
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        warn!(
+                            error = %e,
+                            sample_count = samples.len(),
+                            "❌ Transcription failed: {}",
+                            e
+                        );
+                    }
+                }
+
+                // Set state to Idle after processing (always recover)
+                *state_arc
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner) = AppState::Idle;
+                info!("✓ Ready for next recording");
+            });
+        } else {
+            warn!("⚠️  Transcription engine not available");
+            *self
+                .state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = AppState::Idle;
+            info!("✓ Ready for next recording (transcription disabled)");
         }
     }
 

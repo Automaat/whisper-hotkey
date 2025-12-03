@@ -43,7 +43,7 @@ impl TranscriptionEngine {
     /// Creates a new `TranscriptionEngine` by loading the model from the given path
     ///
     /// # Errors
-    /// Returns error if model file doesn't exist, is invalid, or if threads/beam_size exceed i32::MAX
+    /// Returns error if model file doesn't exist, is invalid, or if `threads`/`beam_size` exceed `i32::MAX`
     pub fn new(
         model_path: &Path,
         threads: usize,
@@ -116,13 +116,11 @@ impl TranscriptionEngine {
         let _span = tracing::debug_span!("transcription", samples = audio_data.len()).entered();
         tracing::debug!("starting transcription");
 
-        let ctx = self
+        // Create state for this transcription
+        let mut state = self
             .ctx
             .lock()
-            .map_err(|e| anyhow::anyhow!("mutex poisoned: {e}"))?;
-
-        // Create state for this transcription
-        let mut state = ctx
+            .map_err(|e| anyhow::anyhow!("mutex poisoned: {e}"))?
             .create_state()
             .map_err(|_| TranscriptionError::StateCreation)?;
 
@@ -247,8 +245,7 @@ mod tests {
         let text = result.unwrap();
         assert!(
             text.is_empty() || text.len() < 50,
-            "Expected empty or minimal output for silence, got: '{}'",
-            text
+            "Expected empty or minimal output for silence, got: '{text}'"
         );
     }
 
@@ -274,6 +271,7 @@ mod tests {
 
     #[test]
     #[ignore = "requires actual model file"]
+    #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     fn test_transcribe_short_audio() {
         let Some(model_path) = get_test_model_path() else {
             eprintln!("Skipping test: no model found");
@@ -383,7 +381,11 @@ mod tests {
 
     #[test]
     #[ignore = "requires actual model file"]
+    #[allow(clippy::cast_precision_loss)]
     fn test_transcribe_noise() {
+        use std::collections::hash_map::RandomState;
+        use std::hash::{BuildHasher, Hasher};
+
         let Some(model_path) = get_test_model_path() else {
             eprintln!("Skipping test: no model found");
             return;
@@ -392,8 +394,6 @@ mod tests {
         let engine = TranscriptionEngine::new(&model_path, 4, 5, None).unwrap();
 
         // 2 seconds of random noise (16kHz)
-        use std::collections::hash_map::RandomState;
-        use std::hash::{BuildHasher, Hasher};
         let hasher = RandomState::new().build_hasher();
         let seed = hasher.finish();
 

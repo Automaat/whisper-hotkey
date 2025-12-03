@@ -112,6 +112,7 @@ impl AudioCapture {
     ///
     /// # Errors
     /// Returns error if ring buffer flush fails
+    #[allow(clippy::unnecessary_wraps)] // Consistent API, may add fallible ops later
     pub fn start_recording(&mut self) -> Result<()> {
         let _span = tracing::debug_span!("start_recording").entered();
         let start = std::time::Instant::now();
@@ -132,6 +133,7 @@ impl AudioCapture {
     ///
     /// # Errors
     /// Returns error if sample conversion fails
+    #[allow(clippy::unnecessary_wraps)] // Consistent API, may add fallible ops later
     pub fn stop_recording(&mut self) -> Result<Vec<f32>> {
         let _span = tracing::debug_span!("stop_recording").entered();
         let start_total = std::time::Instant::now();
@@ -393,6 +395,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::cast_precision_loss)]
     fn test_stereo_downsampling() {
         let capture = mock_audio_capture(44100, 2);
 
@@ -539,6 +542,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::cast_precision_loss)]
     fn test_upsampling_maintains_sample_count_ratio() {
         let capture = mock_audio_capture(8000, 1);
 
@@ -553,6 +557,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::cast_precision_loss)]
     fn test_downsampling_maintains_sample_count_ratio() {
         let capture = mock_audio_capture(32000, 1);
 

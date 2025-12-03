@@ -2,15 +2,20 @@
 //!
 //! These tests verify the end-to-end integration of:
 //! - Transcription engine with audio samples
-//! - Text insertion via CGEvent
+//! - Text insertion via `CGEvent`
 //! - Error handling and logging
 //!
-//! Most tests are marked with #[ignore] as they require:
+//! Most tests are marked with `#[ignore]` as they require:
 //! - Accessibility permissions
 //! - Active cursor position in a text input
 //! - Whisper model file
 //!
-//! Run with: cargo test --test phase5_integration_test -- --ignored
+//! Run with: `cargo test --test phase5_integration_test -- --ignored`
+
+// Allow print macros and eprintln for test output
+#![allow(clippy::print_stdout, clippy::print_stderr, clippy::uninlined_format_args)]
+// Allow cast precision loss for test audio generation
+#![allow(clippy::cast_precision_loss)]
 
 use std::path::PathBuf;
 
@@ -29,17 +34,14 @@ fn get_test_model_path() -> Option<PathBuf> {
 }
 
 #[test]
-#[ignore] // Requires model file and Accessibility permissions with active text input
+#[ignore = "Requires model file and Accessibility permissions with active text input"]
 fn test_transcribe_silence_to_text_insertion() {
     use whisper_hotkey::input::cgevent;
     use whisper_hotkey::transcription::TranscriptionEngine;
 
-    let model_path = match get_test_model_path() {
-        Some(path) => path,
-        None => {
-            eprintln!("Skipping: no model at ~/.whisper-hotkey/models/ggml-tiny.bin");
-            return;
-        }
+    let Some(model_path) = get_test_model_path() else {
+        eprintln!("Skipping: no model at ~/.whisper-hotkey/models/ggml-tiny.bin");
+        return;
     };
 
     // Load transcription engine
@@ -65,17 +67,14 @@ fn test_transcribe_silence_to_text_insertion() {
 }
 
 #[test]
-#[ignore] // Requires model file and Accessibility permissions
+#[ignore = "Requires model file and Accessibility permissions"]
 fn test_full_pipeline_with_tone() {
     use whisper_hotkey::input::cgevent;
     use whisper_hotkey::transcription::TranscriptionEngine;
 
-    let model_path = match get_test_model_path() {
-        Some(path) => path,
-        None => {
-            eprintln!("Skipping: no model");
-            return;
-        }
+    let Some(model_path) = get_test_model_path() else {
+        eprintln!("Skipping: no model");
+        return;
     };
 
     let engine = TranscriptionEngine::new(&model_path, 4, 5, None).expect("failed to load model");
@@ -102,7 +101,7 @@ fn test_full_pipeline_with_tone() {
 }
 
 #[test]
-#[ignore] // Requires Accessibility permissions and active text input
+#[ignore = "Requires Accessibility permissions and active text input"]
 fn test_text_insertion_various_apps() {
     use whisper_hotkey::input::cgevent;
 
@@ -132,7 +131,7 @@ fn test_text_insertion_various_apps() {
 }
 
 #[test]
-#[ignore] // Requires Accessibility permissions and active text input
+#[ignore = "Requires Accessibility permissions and active text input"]
 fn test_unicode_insertion_polish() {
     use whisper_hotkey::input::cgevent;
 
@@ -148,7 +147,7 @@ fn test_unicode_insertion_polish() {
 }
 
 #[test]
-#[ignore] // Requires Accessibility permissions and active text input
+#[ignore = "Requires Accessibility permissions and active text input"]
 fn test_multiline_insertion() {
     use whisper_hotkey::input::cgevent;
 
@@ -164,7 +163,7 @@ fn test_multiline_insertion() {
 }
 
 #[test]
-#[ignore] // Requires Accessibility permissions and active text input
+#[ignore = "Requires Accessibility permissions and active text input"]
 fn test_long_text_insertion() {
     use whisper_hotkey::input::cgevent;
 
@@ -181,7 +180,7 @@ fn test_long_text_insertion() {
 }
 
 #[test]
-#[ignore] // Requires Accessibility permissions
+#[ignore = "Requires Accessibility permissions"]
 fn test_text_insertion_error_handling() {
     use whisper_hotkey::input::cgevent;
 
@@ -196,17 +195,14 @@ fn test_text_insertion_error_handling() {
 }
 
 #[test]
-#[ignore] // Requires model file
+#[ignore = "Requires model file"]
 fn test_transcription_performance() {
     use std::time::Instant;
     use whisper_hotkey::transcription::TranscriptionEngine;
 
-    let model_path = match get_test_model_path() {
-        Some(path) => path,
-        None => {
-            eprintln!("Skipping: no model");
-            return;
-        }
+    let Some(model_path) = get_test_model_path() else {
+        eprintln!("Skipping: no model");
+        return;
     };
 
     let engine = TranscriptionEngine::new(&model_path, 4, 5, None).expect("failed to load model");
@@ -237,18 +233,15 @@ fn test_transcription_performance() {
 }
 
 #[test]
-#[ignore] // Requires model file
+#[ignore = "Requires model file"]
 fn test_concurrent_transcriptions() {
     use std::sync::Arc;
     use std::thread;
     use whisper_hotkey::transcription::TranscriptionEngine;
 
-    let model_path = match get_test_model_path() {
-        Some(path) => path,
-        None => {
-            eprintln!("Skipping: no model");
-            return;
-        }
+    let Some(model_path) = get_test_model_path() else {
+        eprintln!("Skipping: no model");
+        return;
     };
 
     let engine =
@@ -277,6 +270,9 @@ fn test_concurrent_transcriptions() {
 
 #[test]
 fn test_phase5_integration_module_exports() {
+    // Helper to assert Send+Sync traits at compile time
+    fn assert_send_sync<T: Send + Sync>() {}
+
     // Verify all Phase 5 modules are accessible
     use whisper_hotkey::input::cgevent;
     use whisper_hotkey::transcription::TranscriptionEngine;
@@ -285,6 +281,5 @@ fn test_phase5_integration_module_exports() {
     let _: fn(&str) -> bool = cgevent::insert_text_safe;
 
     // Ensure TranscriptionEngine types are available
-    fn _assert_send_sync<T: Send + Sync>() {}
-    _assert_send_sync::<TranscriptionEngine>();
+    assert_send_sync::<TranscriptionEngine>();
 }

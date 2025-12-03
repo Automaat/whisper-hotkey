@@ -70,8 +70,8 @@ impl TrayManager {
         // We want: /Applications/WhisperHotkey.app/Contents/Resources/icon-32.png
         let icon_path = std::env::current_exe()
             .ok()
-            .and_then(|exe_path| exe_path.parent().map(|p| p.to_path_buf()))
-            .and_then(|macos_dir| macos_dir.parent().map(|p| p.to_path_buf()))
+            .and_then(|exe_path| exe_path.parent().map(std::path::Path::to_path_buf))
+            .and_then(|macos_dir| macos_dir.parent().map(std::path::Path::to_path_buf))
             .map(|contents_dir| contents_dir.join("Resources").join(icon_filename))
             .filter(|path| path.exists())
             .unwrap_or_else(|| {
@@ -86,7 +86,7 @@ impl TrayManager {
         tracing::debug!("loading icon for state {:?}: {:?}", state, icon_path);
 
         let image = image::open(&icon_path)
-            .with_context(|| format!("failed to load {} from {:?}", icon_filename, icon_path))?
+            .with_context(|| format!("failed to load {icon_filename} from {}", icon_path.display()))?
             .into_rgba8();
 
         let (width, height) = image.dimensions();
@@ -131,15 +131,11 @@ impl TrayManager {
         let menu = Menu::new();
 
         // Status item showing current state (non-clickable)
-        let status_text = if let Some(state) = app_state {
-            match state {
-                AppState::Idle => "Whisper Hotkey - Ready",
-                AppState::Recording => "🎤 Recording...",
-                AppState::Processing => "⏳ Transcribing...",
-            }
-        } else {
-            "Whisper Hotkey"
-        };
+        let status_text = app_state.map_or("Whisper Hotkey", |state| match state {
+            AppState::Idle => "Whisper Hotkey - Ready",
+            AppState::Recording => "🎤 Recording...",
+            AppState::Processing => "⏳ Transcribing...",
+        });
         let status = MenuItem::new(status_text, false, None);
         menu.append(&status)
             .context("failed to append status item")?;
@@ -307,7 +303,7 @@ impl TrayManager {
         Ok(menu)
     }
 
-    pub fn update_menu(&mut self, config: &Config) -> Result<()> {
+    pub fn update_menu(&self, config: &Config) -> Result<()> {
         let current_state = *self
             .state
             .lock()
@@ -500,14 +496,14 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::redundant_clone)] // Testing Clone trait explicitly
     fn test_tray_command_clone() {
         let cmd1 = TrayCommand::UpdateThreads(4);
-        let cmd2 = cmd1.clone();
-        assert!(matches!(cmd2, TrayCommand::UpdateThreads(4)));
+        let cmd1_cloned = cmd1.clone();
+        assert!(matches!(&cmd1_cloned, TrayCommand::UpdateThreads(4)));
 
         let cmd3 = TrayCommand::UpdateLanguage(Some("en".to_owned()));
-        let cmd4 = cmd3.clone();
-        if let TrayCommand::UpdateLanguage(Some(lang)) = cmd4 {
+        if let TrayCommand::UpdateLanguage(Some(lang)) = cmd3 {
             assert_eq!(lang, "en");
         }
     }
@@ -515,7 +511,7 @@ mod tests {
     #[test]
     fn test_tray_command_debug() {
         let cmd = TrayCommand::Quit;
-        let debug_str = format!("{:?}", cmd);
+        let debug_str = format!("{cmd:?}");
         assert!(debug_str.contains("Quit"));
     }
 
@@ -543,53 +539,55 @@ mod tests {
             modifiers: vec!["Control".to_owned()],
             key: "Z".to_owned(),
         };
-        let debug = format!("{:?}", cmd1);
+        let debug = format!("{cmd1:?}");
         assert!(debug.contains("UpdateHotkey"));
 
         let cmd2 = TrayCommand::UpdateModel {
             name: "base".to_owned(),
         };
-        let debug = format!("{:?}", cmd2);
+        let debug = format!("{cmd2:?}");
         assert!(debug.contains("UpdateModel"));
 
         let cmd3 = TrayCommand::TogglePreload;
-        let debug = format!("{:?}", cmd3);
+        let debug = format!("{cmd3:?}");
         assert!(debug.contains("TogglePreload"));
 
         let cmd4 = TrayCommand::ToggleTelemetry;
-        let debug = format!("{:?}", cmd4);
+        let debug = format!("{cmd4:?}");
         assert!(debug.contains("ToggleTelemetry"));
 
         let cmd5 = TrayCommand::OpenConfigFile;
-        let debug = format!("{:?}", cmd5);
+        let debug = format!("{cmd5:?}");
         assert!(debug.contains("OpenConfigFile"));
     }
 
     #[test]
+    #[allow(clippy::redundant_clone)] // Testing Clone trait explicitly
     fn test_tray_command_clone_all_variants() {
+        // Test that Clone trait works for all variants
         let cmd1 = TrayCommand::UpdateBeamSize(5);
-        let cmd1_clone = cmd1.clone();
-        assert!(matches!(cmd1_clone, TrayCommand::UpdateBeamSize(5)));
+        let cmd1_cloned = cmd1.clone();
+        assert!(matches!(&cmd1_cloned, TrayCommand::UpdateBeamSize(5)));
 
         let cmd2 = TrayCommand::UpdateBufferSize(1024);
-        let cmd2_clone = cmd2.clone();
-        assert!(matches!(cmd2_clone, TrayCommand::UpdateBufferSize(1024)));
+        let cmd2_cloned = cmd2.clone();
+        assert!(matches!(&cmd2_cloned, TrayCommand::UpdateBufferSize(1024)));
 
         let cmd3 = TrayCommand::TogglePreload;
-        let cmd3_clone = cmd3.clone();
-        assert!(matches!(cmd3_clone, TrayCommand::TogglePreload));
+        let cmd3_cloned = cmd3.clone();
+        assert!(matches!(&cmd3_cloned, TrayCommand::TogglePreload));
 
         let cmd4 = TrayCommand::UpdateModel {
             name: "tiny".to_owned(),
         };
-        let cmd4_clone = cmd4.clone();
-        if let TrayCommand::UpdateModel { name } = cmd4_clone {
+        let cmd4_cloned = cmd4.clone();
+        if let TrayCommand::UpdateModel { name } = &cmd4_cloned {
             assert_eq!(name, "tiny");
         }
     }
 
     #[test]
-    #[ignore] // Requires full config and tray icon initialization
+    #[ignore = "Requires full config and tray icon initialization"]
     fn test_state_icon_changes() {
         // Verify state changes are properly detected
         let state = Arc::new(Mutex::new(AppState::Idle));

@@ -22,7 +22,7 @@ pub struct Config {
 /// Hotkey configuration
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct HotkeyConfig {
-    /// Modifier keys (e.g., ["Command", "Shift"])
+    /// Modifier keys (e.g., `["Command", "Shift"]`)
     #[allow(dead_code)] // Used in Phase 2
     pub modifiers: Vec<String>,
     /// Main key (e.g., "V")

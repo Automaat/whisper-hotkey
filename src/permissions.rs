@@ -4,6 +4,7 @@ use anyhow::{bail, Result};
 ///
 /// # Errors
 /// Currently never returns error (permission check deferred to first audio capture)
+#[allow(clippy::unnecessary_wraps)] // Consistent API with other permission checks
 pub fn check_microphone_permission() -> Result<()> {
     tracing::info!("checking microphone permission");
 
@@ -42,6 +43,7 @@ pub fn check_accessibility_permission() -> Result<()> {
 ///
 /// # Errors
 /// Currently never returns error (warns user to check permission manually)
+#[allow(clippy::unnecessary_wraps)] // Consistent API with other permission checks
 pub fn check_input_monitoring_permission() -> Result<()> {
     tracing::info!("checking input monitoring permission");
 
