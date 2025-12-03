@@ -5,7 +5,7 @@ use std::path::Path;
 
 const MODEL_BASE_URL: &str = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main";
 
-/// Maps model names to their HuggingFace filenames
+/// Maps model names to their `HuggingFace` filenames
 fn model_filename(model_name: &str) -> String {
     format!("ggml-{model_name}.bin")
 }

@@ -137,7 +137,7 @@ impl AudioCapture {
         );
 
         // Convert to 16kHz mono
-        let samples_16khz_mono = self.convert_to_16khz_mono(&samples)?;
+        let samples_16khz_mono = self.convert_to_16khz_mono(&samples);
 
         let total_duration = start_total.elapsed();
         info!(
@@ -148,7 +148,7 @@ impl AudioCapture {
         Ok(samples_16khz_mono)
     }
 
-    fn convert_to_16khz_mono(&self, samples: &[f32]) -> Result<Vec<f32>> {
+    fn convert_to_16khz_mono(&self, samples: &[f32]) -> Vec<f32> {
         let _span = tracing::debug_span!("convert_to_16khz_mono").entered();
         let start_total = std::time::Instant::now();
         let target_sample_rate = 16000;
@@ -184,7 +184,7 @@ impl AudioCapture {
 
         // Resample if needed
         if self.device_sample_rate == target_sample_rate {
-            return Ok(mono_samples);
+            return mono_samples;
         }
 
         // Simple linear interpolation resampling
@@ -253,7 +253,7 @@ impl AudioCapture {
             "audio conversion complete"
         );
 
-        Ok(resampled)
+        resampled
     }
 
     /// Save samples to WAV file for debugging
@@ -314,7 +314,7 @@ mod tests {
         // Stereo samples: [L1, R1, L2, R2, L3, R3]
         let stereo_samples = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
 
-        let result = capture.convert_to_16khz_mono(&stereo_samples).unwrap();
+        let result = capture.convert_to_16khz_mono(&stereo_samples);
 
         // Expected: [(1.0+2.0)/2, (3.0+4.0)/2, (5.0+6.0)/2]
         assert_eq!(result.len(), 3);
@@ -329,7 +329,7 @@ mod tests {
 
         let mono_samples = vec![1.0, 2.0, 3.0, 4.0, 5.0];
 
-        let result = capture.convert_to_16khz_mono(&mono_samples).unwrap();
+        let result = capture.convert_to_16khz_mono(&mono_samples);
 
         // Should pass through unchanged
         assert_eq!(result, mono_samples);
@@ -342,7 +342,7 @@ mod tests {
         // 48kHz -> 16kHz is 3:1 ratio
         let samples = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0];
 
-        let result = capture.convert_to_16khz_mono(&samples).unwrap();
+        let result = capture.convert_to_16khz_mono(&samples);
 
         // 9 samples at 48kHz -> 3 samples at 16kHz
         assert_eq!(result.len(), 3);
@@ -360,7 +360,7 @@ mod tests {
         // 8kHz -> 16kHz is 1:2 ratio
         let samples = vec![1.0, 2.0, 3.0, 4.0];
 
-        let result = capture.convert_to_16khz_mono(&samples).unwrap();
+        let result = capture.convert_to_16khz_mono(&samples);
 
         // 4 samples at 8kHz -> 8 samples at 16kHz
         assert_eq!(result.len(), 8);
@@ -382,7 +382,7 @@ mod tests {
             samples.push((i + 1) as f32);
         }
 
-        let result = capture.convert_to_16khz_mono(&samples).unwrap();
+        let result = capture.convert_to_16khz_mono(&samples);
 
         // 44.1kHz -> 16kHz is ~2.76:1, 10 frames -> ~4 samples
         assert!(result.len() >= 3 && result.len() <= 5);
@@ -398,7 +398,7 @@ mod tests {
         let capture = mock_audio_capture(44100, 2);
 
         let empty: Vec<f32> = vec![];
-        let result = capture.convert_to_16khz_mono(&empty).unwrap();
+        let result = capture.convert_to_16khz_mono(&empty);
 
         assert_eq!(result.len(), 0);
     }
@@ -408,7 +408,7 @@ mod tests {
         let capture = mock_audio_capture(16000, 1);
 
         let samples = vec![42.0];
-        let result = capture.convert_to_16khz_mono(&samples).unwrap();
+        let result = capture.convert_to_16khz_mono(&samples);
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0], 42.0);
@@ -421,7 +421,7 @@ mod tests {
         // 4-channel samples: [C1, C2, C3, C4, C1, C2, C3, C4]
         let samples = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
 
-        let result = capture.convert_to_16khz_mono(&samples).unwrap();
+        let result = capture.convert_to_16khz_mono(&samples);
 
         // Expected: [(1+2+3+4)/4, (5+6+7+8)/4] = [2.5, 6.5]
         assert_eq!(result.len(), 2);
@@ -436,7 +436,7 @@ mod tests {
         // All samples in range [-1.0, 1.0]
         let samples = vec![-1.0, -0.5, 0.0, 0.5, 1.0];
 
-        let result = capture.convert_to_16khz_mono(&samples).unwrap();
+        let result = capture.convert_to_16khz_mono(&samples);
 
         // Linear interpolation should keep values in same range
         for &sample in &result {
@@ -524,7 +524,7 @@ mod tests {
         // 10 samples at 8kHz
         let samples = vec![0.0; 10];
 
-        let result = capture.convert_to_16khz_mono(&samples).unwrap();
+        let result = capture.convert_to_16khz_mono(&samples);
 
         // Should be approximately 20 samples at 16kHz (2x ratio)
         let len_f32 = result.len() as f32;
@@ -538,7 +538,7 @@ mod tests {
         // 20 samples at 32kHz
         let samples = vec![0.0; 20];
 
-        let result = capture.convert_to_16khz_mono(&samples).unwrap();
+        let result = capture.convert_to_16khz_mono(&samples);
 
         // Should be approximately 10 samples at 16kHz (0.5x ratio)
         let len_f32 = result.len() as f32;

@@ -26,7 +26,7 @@ pub struct TranscriptionEngine {
 }
 
 impl TranscriptionEngine {
-    /// Creates a new TranscriptionEngine by loading the model from the given path
+    /// Creates a new `TranscriptionEngine` by loading the model from the given path
     pub fn new(
         model_path: &Path,
         threads: usize,

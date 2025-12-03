@@ -159,22 +159,22 @@ impl HotkeyManager {
                                         );
 
                                         // Insert text at cursor, only if non-empty
-                                        if !text.is_empty() {
-                                            if !cgevent::insert_text_safe(&text) {
-                                                warn!(
-                                                    text_len = text.len(),
-                                                    text_preview = %text_preview,
-                                                    "❌ Text insertion failed - check permissions"
-                                                );
-                                            } else {
+                                        if text.is_empty() {
+                                            info!("🔇 No speech detected (silence or noise)");
+                                        } else {
+                                            if cgevent::insert_text_safe(&text) {
                                                 info!(
                                                     text_len = text.len(),
                                                     "✅ Inserted {} chars",
                                                     text.len()
                                                 );
+                                            } else {
+                                                warn!(
+                                                    text_len = text.len(),
+                                                    text_preview = %text_preview,
+                                                    "❌ Text insertion failed - check permissions"
+                                                );
                                             }
-                                        } else {
-                                            info!("🔇 No speech detected (silence or noise)");
                                         }
                                     }
                                     Err(e) => {

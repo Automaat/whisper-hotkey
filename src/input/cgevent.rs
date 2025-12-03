@@ -15,18 +15,18 @@ pub enum TextInsertionError {
     EmptyText,
 }
 
-/// Inserts text at the current cursor position using CGEvent API
+/// Inserts text at the current cursor position using `CGEvent` API
 ///
 /// # Errors
-/// Returns error if CGEvent creation fails or text is empty.
+/// Returns error if `CGEvent` creation fails or text is empty.
 /// Logs error to telemetry but does NOT fall back to clipboard.
 ///
 /// # Implementation
-/// Uses CGEventKeyboardSetUnicodeString to simulate keyboard input.
+/// Uses `CGEventKeyboardSetUnicodeString` to simulate keyboard input.
 /// Requires Accessibility permissions (same as global hotkey).
 ///
 /// # Known Limitations
-/// - Some apps may block CGEvent insertion (e.g., Terminal with secure input)
+/// - Some apps may block `CGEvent` insertion (e.g., Terminal with secure input)
 /// - No clipboard fallback (by design - errors are logged)
 pub fn insert_text(text: &str) -> Result<(), TextInsertionError> {
     if text.is_empty() {
@@ -37,11 +37,11 @@ pub fn insert_text(text: &str) -> Result<(), TextInsertionError> {
 
     // Create event source
     let source = CGEventSource::new(CGEventSourceStateID::HIDSystemState)
-        .map_err(|_| TextInsertionError::EventSourceCreation)?;
+        .map_err(|()| TextInsertionError::EventSourceCreation)?;
 
     // Create a keyboard event with dummy keycode (will be overridden by string)
     let event = CGEvent::new_keyboard_event(source, 0, true)
-        .map_err(|_| TextInsertionError::EventCreation)?;
+        .map_err(|()| TextInsertionError::EventCreation)?;
 
     // Set the text to insert
     // Note: set_string_from_utf16_unchecked is not marked unsafe in core-graphics API

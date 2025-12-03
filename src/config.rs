@@ -46,15 +46,15 @@ pub struct ModelConfig {
     pub language: Option<String>,
 }
 
-fn default_threads() -> usize {
+const fn default_threads() -> usize {
     4 // Optimal for M1/M2 chips
 }
 
-fn default_beam_size() -> usize {
+const fn default_beam_size() -> usize {
     5 // Balance speed/accuracy
 }
 
-fn default_language() -> Option<String> {
+const fn default_language() -> Option<String> {
     None // Auto-detect by default
 }
 
@@ -75,7 +75,7 @@ impl Config {
 
         let contents = fs::read_to_string(&config_path).context("failed to read config file")?;
 
-        let config: Config = toml::from_str(&contents).context("failed to parse config TOML")?;
+        let config: Self = toml::from_str(&contents).context("failed to parse config TOML")?;
 
         Ok(config)
     }
