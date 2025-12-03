@@ -178,4 +178,30 @@ mod tests {
         // Cleanup
         fs::remove_dir_all(temp_dir.join("whisper_test")).unwrap();
     }
+
+    #[test]
+    fn test_model_filename_various_names() {
+        assert_eq!(model_filename("tiny"), "ggml-tiny.bin");
+        assert_eq!(model_filename("base"), "ggml-base.bin");
+        assert_eq!(model_filename("medium"), "ggml-medium.bin");
+        assert_eq!(model_filename("large"), "ggml-large.bin");
+        assert_eq!(model_filename("base.en"), "ggml-base.en.bin");
+    }
+
+    #[test]
+    fn test_ensure_model_returns_false_when_exists() {
+        let temp_dir = std::env::temp_dir();
+        let model_path = temp_dir.join("test_existing_model2.bin");
+
+        // Create dummy file
+        fs::write(&model_path, b"dummy").unwrap();
+
+        let result = ensure_model_downloaded("base", &model_path).unwrap();
+
+        // Should return false because file existed
+        assert!(!result);
+
+        // Cleanup
+        fs::remove_file(&model_path).unwrap();
+    }
 }

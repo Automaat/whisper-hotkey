@@ -473,6 +473,12 @@ mod tests {
 
         let cmd = TrayManager::parse_menu_event("1024 samples");
         assert!(matches!(cmd, Some(TrayCommand::UpdateBufferSize(1024))));
+
+        let cmd = TrayManager::parse_menu_event("2048 samples");
+        assert!(matches!(cmd, Some(TrayCommand::UpdateBufferSize(2048))));
+
+        let cmd = TrayManager::parse_menu_event("4096 samples");
+        assert!(matches!(cmd, Some(TrayCommand::UpdateBufferSize(4096))));
     }
 
     #[test]
@@ -529,6 +535,57 @@ mod tests {
     fn test_load_icon_processing() {
         let result = TrayManager::load_icon(AppState::Processing);
         assert!(result.is_ok(), "Should load processing icon");
+    }
+
+    #[test]
+    fn test_tray_command_variants() {
+        let cmd1 = TrayCommand::UpdateHotkey {
+            modifiers: vec!["Control".to_string()],
+            key: "Z".to_string(),
+        };
+        let debug = format!("{:?}", cmd1);
+        assert!(debug.contains("UpdateHotkey"));
+
+        let cmd2 = TrayCommand::UpdateModel {
+            name: "base".to_string(),
+        };
+        let debug = format!("{:?}", cmd2);
+        assert!(debug.contains("UpdateModel"));
+
+        let cmd3 = TrayCommand::TogglePreload;
+        let debug = format!("{:?}", cmd3);
+        assert!(debug.contains("TogglePreload"));
+
+        let cmd4 = TrayCommand::ToggleTelemetry;
+        let debug = format!("{:?}", cmd4);
+        assert!(debug.contains("ToggleTelemetry"));
+
+        let cmd5 = TrayCommand::OpenConfigFile;
+        let debug = format!("{:?}", cmd5);
+        assert!(debug.contains("OpenConfigFile"));
+    }
+
+    #[test]
+    fn test_tray_command_clone_all_variants() {
+        let cmd1 = TrayCommand::UpdateBeamSize(5);
+        let cmd1_clone = cmd1.clone();
+        assert!(matches!(cmd1_clone, TrayCommand::UpdateBeamSize(5)));
+
+        let cmd2 = TrayCommand::UpdateBufferSize(1024);
+        let cmd2_clone = cmd2.clone();
+        assert!(matches!(cmd2_clone, TrayCommand::UpdateBufferSize(1024)));
+
+        let cmd3 = TrayCommand::TogglePreload;
+        let cmd3_clone = cmd3.clone();
+        assert!(matches!(cmd3_clone, TrayCommand::TogglePreload));
+
+        let cmd4 = TrayCommand::UpdateModel {
+            name: "tiny".to_string(),
+        };
+        let cmd4_clone = cmd4.clone();
+        if let TrayCommand::UpdateModel { name } = cmd4_clone {
+            assert_eq!(name, "tiny");
+        }
     }
 
     #[test]

@@ -436,6 +436,70 @@ mod tests {
         let _ = fs::remove_file(wav_path);
     }
 
+    #[test]
+    fn test_save_wav_debug_empty_samples() {
+        use std::env;
+        use std::fs;
+
+        let samples: Vec<f32> = vec![];
+        let temp_dir = env::temp_dir();
+        let wav_path = temp_dir.join("test_empty.wav");
+
+        let _ = fs::remove_file(&wav_path);
+
+        let result = AudioCapture::save_wav_debug(&samples, &wav_path);
+        assert!(result.is_ok());
+        assert!(wav_path.exists());
+
+        let _ = fs::remove_file(wav_path);
+    }
+
+    #[test]
+    fn test_save_wav_debug_creates_parent_dir() {
+        use std::env;
+        use std::fs;
+
+        let samples = vec![0.1, 0.2];
+        let temp_dir = env::temp_dir();
+        let nested_path = temp_dir.join("test_audio_nested").join("debug.wav");
+
+        // Ensure parent doesn't exist
+        let _ = fs::remove_dir_all(temp_dir.join("test_audio_nested"));
+
+        let result = AudioCapture::save_wav_debug(&samples, &nested_path);
+        assert!(result.is_ok());
+        assert!(nested_path.exists());
+
+        // Clean up
+        let _ = fs::remove_dir_all(temp_dir.join("test_audio_nested"));
+    }
+
+    #[test]
+    fn test_upsampling_maintains_sample_count_ratio() {
+        let capture = mock_audio_capture(8000, 1);
+
+        // 10 samples at 8kHz
+        let samples = vec![0.0; 10];
+
+        let result = capture.convert_to_16khz_mono(&samples).unwrap();
+
+        // Should be approximately 20 samples at 16kHz (2x ratio)
+        assert!((result.len() as f32 - 20.0).abs() < 2.0);
+    }
+
+    #[test]
+    fn test_downsampling_maintains_sample_count_ratio() {
+        let capture = mock_audio_capture(32000, 1);
+
+        // 20 samples at 32kHz
+        let samples = vec![0.0; 20];
+
+        let result = capture.convert_to_16khz_mono(&samples).unwrap();
+
+        // Should be approximately 10 samples at 16kHz (0.5x ratio)
+        assert!((result.len() as f32 - 10.0).abs() < 2.0);
+    }
+
     // Integration tests (require audio hardware, run with: cargo test -- --ignored)
 
     #[test]

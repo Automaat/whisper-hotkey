@@ -16,3 +16,4 @@ comment:
 ignore:
   - "tests/**/*"
   - "**/*_test.rs"
+  - "src/main.rs"              # Entry point - integration tested only

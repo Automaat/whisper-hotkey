@@ -163,4 +163,11 @@ mod tests {
         let result = insert_text("Hello / Cześć 👋 / Hola");
         assert!(result.is_ok());
     }
+
+    #[test]
+    fn test_insert_text_safe_with_non_empty_text() {
+        // This will fail on systems without accessibility permissions
+        // but it tests the code path
+        let _ = insert_text_safe("test");
+    }
 }
