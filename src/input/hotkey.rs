@@ -112,6 +112,9 @@ impl HotkeyManager {
                     .stop_recording()
                 {
                     Ok(samples) => {
+                        // Duration calculation: usize → f64 for sample_count / sample_rate
+                        // Safe: even 1hr audio = 57.6M samples, well within f64 precision
+                        #[allow(clippy::cast_precision_loss)]
                         let duration_secs = samples.len() as f64 / 16000.0;
                         info!(
                             sample_count = samples.len(),

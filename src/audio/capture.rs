@@ -164,7 +164,11 @@ impl AudioCapture {
                 .chunks(self.device_channels as usize)
                 .map(|frame| {
                     let sum_f64: f64 = frame.iter().map(|&s| f64::from(s)).sum();
-                    (sum_f64 / channels_f64) as f32
+                    // f64 → f32: audio samples are stored as f32, precision sufficient
+                    #[allow(clippy::cast_possible_truncation)]
+                    {
+                        (sum_f64 / channels_f64) as f32
+                    }
                 })
                 .collect()
         };
@@ -184,55 +188,69 @@ impl AudioCapture {
         }
 
         // Simple linear interpolation resampling
-        let start_resample = std::time::Instant::now();
-        let ratio = f64::from(self.device_sample_rate) / f64::from(target_sample_rate);
+        // Algorithm requires f64 ↔ usize conversions for fractional index calculations
+        #[allow(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            clippy::cast_precision_loss
+        )]
+        let resampled = {
+            let start_resample = std::time::Instant::now();
+            let ratio = f64::from(self.device_sample_rate) / f64::from(target_sample_rate);
 
-        // Calculate output length - ratio is always positive for valid sample rates
-        let output_len_f64 = (mono_samples.len() as f64) / ratio;
-        let output_len = if output_len_f64.is_finite() && output_len_f64 >= 0.0 {
-            output_len_f64.ceil() as usize
-        } else {
-            mono_samples.len()
+            // Calculate output length - ratio is always positive for valid sample rates
+            let output_len_f64 = (mono_samples.len() as f64) / ratio;
+            let output_len = if output_len_f64.is_finite() && output_len_f64 >= 0.0 {
+                output_len_f64.ceil() as usize
+            } else {
+                mono_samples.len()
+            };
+
+            let mut resampled = Vec::with_capacity(output_len);
+            for i in 0..output_len {
+                // Calculate source index with linear interpolation
+                let src_idx_f64 = (i as f64) * ratio;
+
+                // Floor gives integer part, safe because src_idx >= 0
+                let src_idx_floor = if src_idx_f64 >= 0.0 && src_idx_f64 < (usize::MAX as f64) {
+                    src_idx_f64.floor() as usize
+                } else {
+                    0
+                };
+
+                let src_idx_ceil = (src_idx_floor + 1).min(mono_samples.len().saturating_sub(1));
+                let fract = src_idx_f64 - src_idx_f64.floor();
+
+                let sample = if src_idx_floor < mono_samples.len() {
+                    let s1 = f64::from(mono_samples[src_idx_floor]);
+                    let s2 = f64::from(mono_samples[src_idx_ceil]);
+                    // Use mul_add for better precision
+                    let interpolated = s1.mul_add(1.0 - fract, s2 * fract);
+                    interpolated as f32
+                } else {
+                    0.0_f32
+                };
+
+                resampled.push(sample);
+            }
+
+            let resample_duration = start_resample.elapsed();
+            info!(
+                device_rate = self.device_sample_rate,
+                target_rate = target_sample_rate,
+                input_samples = mono_samples.len(),
+                output_samples = resampled.len(),
+                resample_us = resample_duration.as_micros(),
+                "resampling completed"
+            );
+
+            resampled
         };
 
-        let mut resampled = Vec::with_capacity(output_len);
-        for i in 0..output_len {
-            // Calculate source index with linear interpolation
-            let src_idx_f64 = (i as f64) * ratio;
-
-            // Floor gives integer part, safe because src_idx >= 0
-            let src_idx_floor = if src_idx_f64 >= 0.0 && src_idx_f64 < (usize::MAX as f64) {
-                src_idx_f64.floor() as usize
-            } else {
-                0
-            };
-
-            let src_idx_ceil = (src_idx_floor + 1).min(mono_samples.len().saturating_sub(1));
-            let fract = src_idx_f64 - src_idx_f64.floor();
-
-            let sample = if src_idx_floor < mono_samples.len() {
-                let s1 = f64::from(mono_samples[src_idx_floor]);
-                let s2 = f64::from(mono_samples[src_idx_ceil]);
-                // Use mul_add for better precision
-                let interpolated = s1.mul_add(1.0 - fract, s2 * fract);
-                interpolated as f32
-            } else {
-                0.0_f32
-            };
-
-            resampled.push(sample);
-        }
-        let resample_duration = start_resample.elapsed();
-
         let total_duration = start_total.elapsed();
-        info!(
-            from_hz = self.device_sample_rate,
-            to_hz = target_sample_rate,
-            from_samples = mono_samples.len(),
-            to_samples = resampled.len(),
-            resample_us = resample_duration.as_micros(),
+        debug!(
             total_us = total_duration.as_micros(),
-            "resampling complete"
+            "audio conversion complete"
         );
 
         Ok(resampled)
