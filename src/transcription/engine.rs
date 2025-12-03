@@ -9,7 +9,12 @@ use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextPar
 pub enum TranscriptionError {
     /// Failed to load Whisper model
     #[error("failed to load whisper model from {path}: {source}")]
-    ModelLoad { path: String, source: anyhow::Error },
+    ModelLoad {
+        /// Path to model file
+        path: String,
+        /// Underlying error
+        source: anyhow::Error,
+    },
 
     /// Failed to create Whisper inference state
     #[error("failed to create whisper state")]

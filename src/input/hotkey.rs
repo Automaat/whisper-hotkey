@@ -14,8 +14,11 @@ use crate::transcription::TranscriptionEngine;
 /// Application state machine
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AppState {
+    /// Waiting for hotkey press
     Idle,
+    /// Recording audio (hotkey held)
     Recording,
+    /// Transcribing and inserting text
     Processing,
 }
 

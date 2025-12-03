@@ -3,14 +3,18 @@ use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
 use thiserror::Error;
 use tracing::{debug, error, info};
 
+/// Text insertion errors
 #[derive(Debug, Error)]
 pub enum TextInsertionError {
+    /// Failed to create CGEvent source
     #[error("failed to create CGEvent source")]
     EventSourceCreation,
 
+    /// Failed to create keyboard CGEvent
     #[error("failed to create keyboard CGEvent")]
     EventCreation,
 
+    /// Text is empty
     #[error("text is empty")]
     EmptyText,
 }
