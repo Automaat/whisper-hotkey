@@ -30,3 +30,33 @@ reqwest = { version = "0.11", features = ["blocking"] }
 # Menubar Integration
 tray-icon = "0.18"
 image = "0.25"
+
+[lints.rust]
+unsafe_code = "warn"
+missing_docs = "warn"
+
+[lints.clippy]
+# Core groups
+all = "deny"
+pedantic = "warn"
+nursery = "warn"
+
+# Restriction lints - cherry-picked for safety
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "warn"
+unimplemented = "warn"
+unreachable = "deny"
+
+# Additional quality lints
+dbg_macro = "warn"
+print_stdout = "warn"
+print_stderr = "warn"
+exit = "deny"
+lossy_float_literal = "deny"
+rest_pat_in_fully_bound_structs = "deny"
+str_to_string = "deny"
+unnecessary_self_imports = "deny"
+unneeded_field_pattern = "warn"
+unseparated_literal_suffix = "warn"

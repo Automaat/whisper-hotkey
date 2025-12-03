@@ -1,0 +1,48 @@
+# MSRV - adjust to your minimum Rust version
+msrv = "1.75.0"
+
+# Cognitive complexity threshold (lower = stricter)
+cognitive-complexity-threshold = 15
+
+# Type complexity threshold
+type-complexity-threshold = 100
+
+# Disallowed method examples
+disallowed-methods = [
+    # Example: prevent dangerous methods
+    # { path = "std::env::set_var", reason = "use scoped variant instead" },
+]
+
+# Disallowed type examples
+disallowed-types = [
+    # Example: enforce specific types
+    # { path = "std::collections::HashMap", reason = "use FxHashMap for performance" },
+]
+
+# Allow unwrap/expect in tests
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+
+# Suppress specific lints in test code
+suppress-restriction-lint-in-const = true
+
+# Vec initialization size threshold
+vec-box-size-threshold = 4096
+
+# Literal representation improvements
+literal-representation-threshold = 16384
+
+# Single char pattern threshold
+single-char-binding-names-threshold = 4
+
+# Function argument count warning
+too-many-arguments-threshold = 7
+
+# Enum variant name threshold
+enum-variant-name-threshold = 3
+
+# Struct field count for too_many_fields lint
+max-struct-bools = 3
+
+# Large error types threshold
+large-error-threshold = 128
