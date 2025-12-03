@@ -90,7 +90,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Requires filesystem access and global tracing subscriber initialization
+    #[ignore = "requires filesystem access and global tracing subscriber"]
     fn test_init_with_telemetry_enabled() {
         // Would need to:
         // 1. Set up temp directory for log file
@@ -100,14 +100,14 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Requires global tracing subscriber initialization
+    #[ignore = "requires global tracing subscriber"]
     fn test_init_with_telemetry_disabled() {
         // Would need to handle global tracing subscriber (can only init once per process)
         // Skip for now as it's integration-level testing
     }
 
     #[test]
-    #[ignore] // Requires filesystem access
+    #[ignore = "requires filesystem access"]
     fn test_init_creates_parent_directory() {
         // Would need to:
         // 1. Set up temp directory structure

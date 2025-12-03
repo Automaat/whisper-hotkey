@@ -81,14 +81,14 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Requires accessibility permissions on macOS
+    #[ignore = "requires accessibility permissions on macOS"]
     fn test_check_accessibility_permission() {
         let result = check_accessibility_permission();
         assert!(result.is_ok());
     }
 
     #[test]
-    #[ignore] // Requires permissions on macOS
+    #[ignore = "requires permissions on macOS"]
     fn test_request_all_permissions() {
         let result = request_all_permissions();
         assert!(result.is_ok());

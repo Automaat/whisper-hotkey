@@ -63,14 +63,14 @@ impl HotkeyManager {
 
     /// Handle hotkey press event
     pub fn on_press(&self) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         match *state {
             AppState::Idle => {
                 info!("🎤 Hotkey pressed - recording started");
                 *state = AppState::Recording;
 
                 // Start audio recording with error recovery
-                if let Err(e) = self.audio.lock().unwrap().start_recording() {
+                if let Err(e) = self.audio.lock().unwrap_or_else(|e| e.into_inner()).start_recording() {
                     warn!(error = %e, "❌ Failed to start recording");
                     *state = AppState::Idle;
                     // Continue running - this is a transient error, user can try again
@@ -87,14 +87,14 @@ impl HotkeyManager {
 
     /// Handle hotkey release event
     pub fn on_release(&self) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         match *state {
             AppState::Recording => {
                 info!("⏹️  Hotkey released - processing audio");
                 *state = AppState::Processing;
 
                 // Stop audio recording and get samples
-                match self.audio.lock().unwrap().stop_recording() {
+                match self.audio.lock().unwrap_or_else(|e| e.into_inner()).stop_recording() {
                     Ok(samples) => {
                         let duration_secs = samples.len() as f32 / 16000.0;
                         info!(
@@ -108,9 +108,9 @@ impl HotkeyManager {
                         // Save WAV debug file with error recovery
                         let timestamp = std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap()
+                            .unwrap_or_else(|_| std::time::Duration::from_secs(0))
                             .as_secs();
-                        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+                        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_owned());
                         let debug_path = std::path::PathBuf::from(home)
                             .join(".whisper-hotkey")
                             .join("debug")
@@ -169,7 +169,7 @@ impl HotkeyManager {
                                 }
 
                                 // Set state to Idle after processing (always recover)
-                                let mut state = state_arc.lock().unwrap();
+                                let mut state = state_arc.lock().unwrap_or_else(|e| e.into_inner());
                                 *state = AppState::Idle;
                                 info!("✓ Ready for next recording");
                             });
@@ -268,60 +268,60 @@ mod tests {
 
     #[test]
     fn test_parse_modifiers_control() {
-        let result = HotkeyManager::parse_modifiers(&["Control".to_string()]).unwrap();
+        let result = HotkeyManager::parse_modifiers(&["Control".to_owned()]).unwrap();
         assert_eq!(result, Modifiers::CONTROL);
     }
 
     #[test]
     fn test_parse_modifiers_ctrl_alias() {
-        let result = HotkeyManager::parse_modifiers(&["Ctrl".to_string()]).unwrap();
+        let result = HotkeyManager::parse_modifiers(&["Ctrl".to_owned()]).unwrap();
         assert_eq!(result, Modifiers::CONTROL);
     }
 
     #[test]
     fn test_parse_modifiers_option() {
-        let result = HotkeyManager::parse_modifiers(&["Option".to_string()]).unwrap();
+        let result = HotkeyManager::parse_modifiers(&["Option".to_owned()]).unwrap();
         assert_eq!(result, Modifiers::ALT);
     }
 
     #[test]
     fn test_parse_modifiers_alt_alias() {
-        let result = HotkeyManager::parse_modifiers(&["Alt".to_string()]).unwrap();
+        let result = HotkeyManager::parse_modifiers(&["Alt".to_owned()]).unwrap();
         assert_eq!(result, Modifiers::ALT);
     }
 
     #[test]
     fn test_parse_modifiers_command() {
-        let result = HotkeyManager::parse_modifiers(&["Command".to_string()]).unwrap();
+        let result = HotkeyManager::parse_modifiers(&["Command".to_owned()]).unwrap();
         assert_eq!(result, Modifiers::SUPER);
     }
 
     #[test]
     fn test_parse_modifiers_super_alias() {
-        let result = HotkeyManager::parse_modifiers(&["Super".to_string()]).unwrap();
+        let result = HotkeyManager::parse_modifiers(&["Super".to_owned()]).unwrap();
         assert_eq!(result, Modifiers::SUPER);
     }
 
     #[test]
     fn test_parse_modifiers_shift() {
-        let result = HotkeyManager::parse_modifiers(&["Shift".to_string()]).unwrap();
+        let result = HotkeyManager::parse_modifiers(&["Shift".to_owned()]).unwrap();
         assert_eq!(result, Modifiers::SHIFT);
     }
 
     #[test]
     fn test_parse_modifiers_multiple() {
         let result =
-            HotkeyManager::parse_modifiers(&["Control".to_string(), "Option".to_string()]).unwrap();
+            HotkeyManager::parse_modifiers(&["Control".to_owned(), "Option".to_owned()]).unwrap();
         assert_eq!(result, Modifiers::CONTROL | Modifiers::ALT);
     }
 
     #[test]
     fn test_parse_modifiers_all() {
         let result = HotkeyManager::parse_modifiers(&[
-            "Control".to_string(),
-            "Option".to_string(),
-            "Command".to_string(),
-            "Shift".to_string(),
+            "Control".to_owned(),
+            "Option".to_owned(),
+            "Command".to_owned(),
+            "Shift".to_owned(),
         ])
         .unwrap();
         assert_eq!(
@@ -332,7 +332,7 @@ mod tests {
 
     #[test]
     fn test_parse_modifiers_invalid() {
-        let result = HotkeyManager::parse_modifiers(&["Invalid".to_string()]);
+        let result = HotkeyManager::parse_modifiers(&["Invalid".to_owned()]);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("unknown modifier"));
     }
@@ -421,12 +421,12 @@ mod tests {
     #[test]
     fn test_parse_modifiers_mixed_case() {
         // Test that only exact case works
-        let result = HotkeyManager::parse_modifiers(&["control".to_string()]);
+        let result = HotkeyManager::parse_modifiers(&["control".to_owned()]);
         assert!(result.is_err());
     }
 
     #[test]
-    #[ignore] // Requires audio hardware and global hotkey registration
+    #[ignore = "requires audio hardware and global hotkey registration"]
     fn test_hotkey_manager_creation() {
         // Would need to:
         // 1. Mock or create AudioCapture
@@ -435,7 +435,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Requires state machine with audio integration
+    #[ignore = "requires state machine with audio integration"]
     fn test_state_transitions_on_press_release() {
         // Would need to:
         // 1. Mock AudioCapture

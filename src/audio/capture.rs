@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use hound::{WavSpec, WavWriter};
-use ringbuf::{traits::*, HeapCons, HeapRb};
+use ringbuf::{traits::{Consumer, Producer, Split}, HeapCons, HeapRb};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -28,7 +28,7 @@ impl AudioCapture {
             .default_input_device()
             .context("no input device available")?;
 
-        let device_name = device.name().unwrap_or_else(|_| "unknown".to_string());
+        let device_name = device.name().unwrap_or_else(|_| "unknown".to_owned());
         info!("using input device: {}", device_name);
 
         // Get device config (use device default, will resample to 16kHz later)
@@ -503,7 +503,7 @@ mod tests {
     // Integration tests (require audio hardware, run with: cargo test -- --ignored)
 
     #[test]
-    #[ignore]
+    #[ignore = "requires audio hardware"]
     fn test_audio_capture_initialization() {
         let config = AudioConfig {
             buffer_size: 1024,
@@ -522,7 +522,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+    #[ignore = "requires audio hardware"]
     fn test_start_stop_recording() {
         let config = AudioConfig {
             buffer_size: 1024,
@@ -550,7 +550,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+    #[ignore = "requires audio hardware"]
     fn test_multiple_recording_cycles() {
         let config = AudioConfig {
             buffer_size: 1024,
@@ -568,7 +568,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+    #[ignore = "requires audio hardware"]
     fn test_ring_buffer_clearing() {
         let config = AudioConfig {
             buffer_size: 1024,

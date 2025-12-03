@@ -79,10 +79,7 @@ mod tests {
     fn test_insert_text_empty() {
         let result = insert_text("");
         assert!(result.is_err());
-        match result {
-            Err(TextInsertionError::EmptyText) => {}
-            _ => panic!("Expected EmptyText error"),
-        }
+        assert!(matches!(result, Err(TextInsertionError::EmptyText)));
     }
 
     #[test]
@@ -92,7 +89,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Requires Accessibility permissions and active cursor position
+    #[ignore = "requires Accessibility permissions and active cursor"]
     fn test_insert_text_simple() {
         // Simple ASCII text
         let result = insert_text("hello");
@@ -100,7 +97,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Requires Accessibility permissions and active cursor position
+    #[ignore = "requires Accessibility permissions and active cursor"]
     fn test_insert_text_unicode() {
         // Unicode text (emojis, non-ASCII)
         let result = insert_text("Hello 👋 Świat 🌍");
@@ -108,7 +105,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Requires Accessibility permissions and active cursor position
+    #[ignore = "requires Accessibility permissions and active cursor"]
     fn test_insert_text_multiline() {
         // Multiline text with newlines
         let result = insert_text("Line 1\nLine 2\nLine 3");
@@ -116,7 +113,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Requires Accessibility permissions and active cursor position
+    #[ignore = "requires Accessibility permissions and active cursor"]
     fn test_insert_text_long() {
         // Long text (>1000 characters)
         let long_text = "a".repeat(1500);
@@ -125,7 +122,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Requires Accessibility permissions and active cursor position
+    #[ignore = "requires Accessibility permissions and active cursor"]
     fn test_insert_text_special_chars() {
         // Special characters that might need escaping
         let result = insert_text("Hello \"world\" with 'quotes' and <symbols>");
@@ -133,14 +130,14 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Requires Accessibility permissions and active cursor position
+    #[ignore = "requires Accessibility permissions and active cursor"]
     fn test_insert_text_safe_simple() {
         let result = insert_text_safe("test");
         assert!(result);
     }
 
     #[test]
-    #[ignore] // Requires Accessibility permissions and active cursor position
+    #[ignore = "requires Accessibility permissions and active cursor"]
     fn test_multiple_insertions() {
         // Verify multiple insertions work
         assert!(insert_text("First").is_ok());
@@ -149,7 +146,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Requires Accessibility permissions and active cursor position
+    #[ignore = "requires Accessibility permissions and active cursor"]
     fn test_insert_text_polish_unicode() {
         // Test Polish characters specifically (from project requirements)
         let result = insert_text("Witaj świecie! Zażółć gęślą jaźń.");
@@ -157,7 +154,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Requires Accessibility permissions and active cursor position
+    #[ignore = "requires Accessibility permissions and active cursor"]
     fn test_insert_text_mixed_languages() {
         // Mixed English/Polish/Emoji
         let result = insert_text("Hello / Cześć 👋 / Hola");

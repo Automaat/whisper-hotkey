@@ -281,14 +281,14 @@ log_path = "/tmp/crash.log"
     }
 
     #[test]
-    #[ignore] // Requires filesystem access
+    #[ignore = "requires filesystem access"]
     fn test_load_creates_default_if_missing() {
         // This test would require setting up a temp directory and manipulating HOME
         // Skip for now as it's integration-level testing
     }
 
     #[test]
-    #[ignore] // Requires filesystem access
+    #[ignore = "requires filesystem access"]
     fn test_load_reads_existing_config() {
         // This test would require creating a temp config file
         // Skip for now as it's integration-level testing
@@ -298,16 +298,16 @@ log_path = "/tmp/crash.log"
     fn test_config_serialize() {
         let config = Config {
             hotkey: HotkeyConfig {
-                modifiers: vec!["Control".to_string(), "Option".to_string()],
-                key: "Z".to_string(),
+                modifiers: vec!["Control".to_owned(), "Option".to_owned()],
+                key: "Z".to_owned(),
             },
             audio: AudioConfig {
                 buffer_size: 1024,
                 sample_rate: 16000,
             },
             model: ModelConfig {
-                name: "small".to_string(),
-                path: "~/.whisper-hotkey/models/ggml-small.bin".to_string(),
+                name: "small".to_owned(),
+                path: "~/.whisper-hotkey/models/ggml-small.bin".to_owned(),
                 preload: true,
                 threads: 4,
                 beam_size: 5,
@@ -315,7 +315,7 @@ log_path = "/tmp/crash.log"
             },
             telemetry: TelemetryConfig {
                 enabled: true,
-                log_path: "~/.whisper-hotkey/crash.log".to_string(),
+                log_path: "~/.whisper-hotkey/crash.log".to_owned(),
             },
         };
 
@@ -330,24 +330,24 @@ log_path = "/tmp/crash.log"
     fn test_config_roundtrip() {
         let original = Config {
             hotkey: HotkeyConfig {
-                modifiers: vec!["Command".to_string()],
-                key: "V".to_string(),
+                modifiers: vec!["Command".to_owned()],
+                key: "V".to_owned(),
             },
             audio: AudioConfig {
                 buffer_size: 2048,
                 sample_rate: 16000,
             },
             model: ModelConfig {
-                name: "base".to_string(),
-                path: "/tmp/model.bin".to_string(),
+                name: "base".to_owned(),
+                path: "/tmp/model.bin".to_owned(),
                 preload: false,
                 threads: 8,
                 beam_size: 10,
-                language: Some("pl".to_string()),
+                language: Some("pl".to_owned()),
             },
             telemetry: TelemetryConfig {
                 enabled: false,
-                log_path: "/tmp/log.txt".to_string(),
+                log_path: "/tmp/log.txt".to_owned(),
             },
         };
 
@@ -397,6 +397,6 @@ enabled = true
 log_path = "/tmp/crash.log"
 "#;
         let config: Config = toml::from_str(toml).unwrap();
-        assert_eq!(config.model.language, Some("en".to_string()));
+        assert_eq!(config.model.language, Some("en".to_owned()));
     }
 }

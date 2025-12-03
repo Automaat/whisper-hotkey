@@ -151,7 +151,7 @@ async fn main() -> Result<()> {
         let msg = if requires_restart {
             format!("{} (restart required)", success_msg)
         } else {
-            success_msg.to_string()
+            success_msg.to_owned()
         };
         println!("✓ {}", msg);
         tracing::info!("{}", success_msg.to_lowercase());
@@ -247,7 +247,7 @@ async fn main() -> Result<()> {
                     let msg = if let Some(ref l) = lang {
                         format!("Language updated to {}", l)
                     } else {
-                        "Language set to auto-detect".to_string()
+                        "Language set to auto-detect".to_owned()
                     };
                     config.model.language = lang;
                     if let Err(e) = save_and_update(&config, &mut tray_manager, &msg, false) {

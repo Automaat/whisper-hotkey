@@ -36,10 +36,10 @@ unsafe_code = "warn"
 missing_docs = "warn"
 
 [lints.clippy]
-# Core groups
-all = "deny"
-pedantic = "warn"
-nursery = "warn"
+# Core groups (priority -1 to allow individual overrides)
+all = { level = "deny", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
 
 # Restriction lints - cherry-picked for safety
 unwrap_used = "deny"

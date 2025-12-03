@@ -163,7 +163,7 @@ impl TrayManager {
             let display_label = if is_selected {
                 format!("✓ {}", label)
             } else {
-                label.to_string()
+                label.to_owned()
             };
             let item = MenuItem::new(&display_label, true, None);
             hotkey_submenu
@@ -183,7 +183,7 @@ impl TrayManager {
             let display_label = if is_selected {
                 format!("✓ {}", model_name)
             } else {
-                model_name.to_string()
+                model_name.to_owned()
             };
             let item = MenuItem::new(&display_label, true, None);
             model_submenu
@@ -252,7 +252,7 @@ impl TrayManager {
             let display_label = if is_selected {
                 format!("✓ {}", label)
             } else {
-                label.to_string()
+                label.to_owned()
             };
             let item = MenuItem::new(&display_label, true, None);
             lang_submenu
@@ -335,25 +335,25 @@ impl TrayManager {
         match id {
             // Hotkeys
             "Control+Option+Z" => Some(TrayCommand::UpdateHotkey {
-                modifiers: vec!["Control".to_string(), "Option".to_string()],
-                key: "Z".to_string(),
+                modifiers: vec!["Control".to_owned(), "Option".to_owned()],
+                key: "Z".to_owned(),
             }),
             "Command+Shift+V" => Some(TrayCommand::UpdateHotkey {
-                modifiers: vec!["Command".to_string(), "Shift".to_string()],
-                key: "V".to_string(),
+                modifiers: vec!["Command".to_owned(), "Shift".to_owned()],
+                key: "V".to_owned(),
             }),
             "Command+Option+V" => Some(TrayCommand::UpdateHotkey {
-                modifiers: vec!["Command".to_string(), "Option".to_string()],
-                key: "V".to_string(),
+                modifiers: vec!["Command".to_owned(), "Option".to_owned()],
+                key: "V".to_owned(),
             }),
             "Control+Shift+Space" => Some(TrayCommand::UpdateHotkey {
-                modifiers: vec!["Control".to_string(), "Shift".to_string()],
-                key: "Space".to_string(),
+                modifiers: vec!["Control".to_owned(), "Shift".to_owned()],
+                key: "Space".to_owned(),
             }),
 
             // Models
             "tiny" | "base" | "small" | "medium" => Some(TrayCommand::UpdateModel {
-                name: id.to_string(),
+                name: id.to_owned(),
             }),
 
             // Threads
@@ -371,11 +371,11 @@ impl TrayManager {
 
             // Languages
             "Auto-detect" => Some(TrayCommand::UpdateLanguage(None)),
-            "English" => Some(TrayCommand::UpdateLanguage(Some("en".to_string()))),
-            "Polish" => Some(TrayCommand::UpdateLanguage(Some("pl".to_string()))),
-            "Spanish" => Some(TrayCommand::UpdateLanguage(Some("es".to_string()))),
-            "French" => Some(TrayCommand::UpdateLanguage(Some("fr".to_string()))),
-            "German" => Some(TrayCommand::UpdateLanguage(Some("de".to_string()))),
+            "English" => Some(TrayCommand::UpdateLanguage(Some("en".to_owned()))),
+            "Polish" => Some(TrayCommand::UpdateLanguage(Some("pl".to_owned()))),
+            "Spanish" => Some(TrayCommand::UpdateLanguage(Some("es".to_owned()))),
+            "French" => Some(TrayCommand::UpdateLanguage(Some("fr".to_owned()))),
+            "German" => Some(TrayCommand::UpdateLanguage(Some("de".to_owned()))),
 
             // Audio buffer
             "512 samples" => Some(TrayCommand::UpdateBufferSize(512)),
@@ -505,7 +505,7 @@ mod tests {
         let cmd2 = cmd1.clone();
         assert!(matches!(cmd2, TrayCommand::UpdateThreads(4)));
 
-        let cmd3 = TrayCommand::UpdateLanguage(Some("en".to_string()));
+        let cmd3 = TrayCommand::UpdateLanguage(Some("en".to_owned()));
         let cmd4 = cmd3.clone();
         if let TrayCommand::UpdateLanguage(Some(lang)) = cmd4 {
             assert_eq!(lang, "en");
@@ -540,14 +540,14 @@ mod tests {
     #[test]
     fn test_tray_command_variants() {
         let cmd1 = TrayCommand::UpdateHotkey {
-            modifiers: vec!["Control".to_string()],
-            key: "Z".to_string(),
+            modifiers: vec!["Control".to_owned()],
+            key: "Z".to_owned(),
         };
         let debug = format!("{:?}", cmd1);
         assert!(debug.contains("UpdateHotkey"));
 
         let cmd2 = TrayCommand::UpdateModel {
-            name: "base".to_string(),
+            name: "base".to_owned(),
         };
         let debug = format!("{:?}", cmd2);
         assert!(debug.contains("UpdateModel"));
@@ -580,7 +580,7 @@ mod tests {
         assert!(matches!(cmd3_clone, TrayCommand::TogglePreload));
 
         let cmd4 = TrayCommand::UpdateModel {
-            name: "tiny".to_string(),
+            name: "tiny".to_owned(),
         };
         let cmd4_clone = cmd4.clone();
         if let TrayCommand::UpdateModel { name } = cmd4_clone {

@@ -111,7 +111,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Requires network access and downloads large file
+    #[ignore = "requires network access and downloads large file"]
     fn test_download_model_integration() {
         let temp_dir = std::env::temp_dir();
         let model_path = temp_dir.join("test_downloaded_model.bin");

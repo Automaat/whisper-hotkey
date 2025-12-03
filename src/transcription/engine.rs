@@ -128,7 +128,7 @@ impl TranscriptionEngine {
         }
 
         // Trim whitespace
-        let result = result.trim().to_string();
+        let result = result.trim().to_owned();
 
         tracing::info!(
             segments = state.full_n_segments(),
@@ -146,7 +146,9 @@ impl TranscriptionEngine {
 // 2. All methods require acquiring the mutex lock before accessing the context
 // 3. No shared mutable state exists outside the mutex
 // 4. whisper-rs WhisperContext is documented as thread-safe when properly synchronized
+#[allow(unsafe_code)]
 unsafe impl Send for TranscriptionEngine {}
+#[allow(unsafe_code)]
 unsafe impl Sync for TranscriptionEngine {}
 
 #[cfg(test)]
@@ -175,16 +177,14 @@ mod tests {
         let result = TranscriptionEngine::new(nonexistent_path, 4, 5, None);
 
         assert!(result.is_err());
-        match result {
-            Err(TranscriptionError::ModelLoad { path, .. }) => {
-                assert!(path.contains("nonexistent_model.bin"));
-            }
-            _ => panic!("Expected ModelLoad error"),
+        assert!(matches!(result, Err(TranscriptionError::ModelLoad { .. })));
+        if let Err(TranscriptionError::ModelLoad { path, .. }) = result {
+            assert!(path.contains("nonexistent_model.bin"));
         }
     }
 
     #[test]
-    #[ignore] // Requires actual model file
+    #[ignore = "requires actual model file"]
     fn test_model_load_success() {
         let model_path = match get_test_model_path() {
             Some(path) => path,
@@ -201,7 +201,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Requires actual model file
+    #[ignore = "requires actual model file"]
     fn test_transcribe_silence() {
         let model_path = match get_test_model_path() {
             Some(path) => path,
@@ -229,7 +229,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Requires actual model file
+    #[ignore = "requires actual model file"]
     fn test_transcribe_empty_audio() {
         let model_path = match get_test_model_path() {
             Some(path) => path,
@@ -252,7 +252,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Requires actual model file
+    #[ignore = "requires actual model file"]
     fn test_transcribe_short_audio() {
         let model_path = match get_test_model_path() {
             Some(path) => path,
@@ -285,7 +285,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Requires actual model file
+    #[ignore = "requires actual model file"]
     fn test_multiple_transcriptions() {
         let model_path = match get_test_model_path() {
             Some(path) => path,
@@ -306,7 +306,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Requires actual model file
+    #[ignore = "requires actual model file"]
     fn test_transcribe_different_lengths() {
         let model_path = match get_test_model_path() {
             Some(path) => path,
@@ -329,7 +329,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Requires actual model file
+    #[ignore = "requires actual model file"]
     fn test_long_recording_30s() {
         let model_path = match get_test_model_path() {
             Some(path) => path,
@@ -349,7 +349,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Requires actual model file
+    #[ignore = "requires actual model file"]
     fn test_optimization_params() {
         // NOTE: This test validates that different optimization parameters are accepted
         // without crashing, but does not verify that they actually affect behavior or
@@ -376,7 +376,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Requires actual model file
+    #[ignore = "requires actual model file"]
     fn test_transcribe_noise() {
         let model_path = match get_test_model_path() {
             Some(path) => path,
@@ -398,7 +398,7 @@ mod tests {
         let mut noise = Vec::with_capacity(32000);
         for _ in 0..32000 {
             // Simple LCG for deterministic noise
-            rng_state = rng_state.wrapping_mul(1103515245).wrapping_add(12345);
+            rng_state = rng_state.wrapping_mul(1_103_515_245).wrapping_add(12345);
             let sample = ((rng_state >> 16) as f32 / 32768.0) - 1.0;
             noise.push(sample * 0.1); // Low amplitude noise
         }
@@ -426,11 +426,9 @@ mod tests {
         let path = Path::new("/tmp/dummy.bin");
         let result = TranscriptionEngine::new(path, 0, 5, None);
         assert!(result.is_err());
-        match result {
-            Err(TranscriptionError::ModelLoad { source, .. }) => {
-                assert!(source.to_string().contains("threads must be > 0"));
-            }
-            _ => panic!("Expected ModelLoad error"),
+        assert!(matches!(result, Err(TranscriptionError::ModelLoad { .. })));
+        if let Err(TranscriptionError::ModelLoad { source, .. }) = result {
+            assert!(source.to_string().contains("threads must be > 0"));
         }
     }
 
@@ -439,25 +437,18 @@ mod tests {
         let path = Path::new("/tmp/dummy.bin");
         let result = TranscriptionEngine::new(path, 4, 0, None);
         assert!(result.is_err());
-        match result {
-            Err(TranscriptionError::ModelLoad { source, .. }) => {
-                assert!(source.to_string().contains("beam_size must be > 0"));
-            }
-            _ => panic!("Expected ModelLoad error"),
+        assert!(matches!(result, Err(TranscriptionError::ModelLoad { .. })));
+        if let Err(TranscriptionError::ModelLoad { source, .. }) = result {
+            assert!(source.to_string().contains("beam_size must be > 0"));
         }
     }
 
     #[test]
     fn test_new_with_valid_params() {
         let path = Path::new("/tmp/nonexistent_but_valid_params.bin");
-        let result = TranscriptionEngine::new(path, 4, 5, Some("en".to_string()));
+        let result = TranscriptionEngine::new(path, 4, 5, Some("en".to_owned()));
         // Will fail because file doesn't exist, but params are validated first
         assert!(result.is_err());
-        match result {
-            Err(TranscriptionError::ModelLoad { .. }) => {
-                // Expected - file doesn't exist
-            }
-            _ => panic!("Expected ModelLoad error"),
-        }
+        assert!(matches!(result, Err(TranscriptionError::ModelLoad { .. })));
     }
 }
