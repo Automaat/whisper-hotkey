@@ -161,7 +161,10 @@ impl AudioCapture {
             // Average channels (simple downmix)
             samples
                 .chunks(self.device_channels as usize)
-                .map(|frame| frame.iter().sum::<f32>() / frame.len() as f32)
+                .map(|frame| {
+                    let sum: f32 = frame.iter().sum();
+                    sum / (frame.len() as f32)
+                })
                 .collect()
         };
         let downmix_duration = start_downmix.elapsed();
@@ -186,10 +189,10 @@ impl AudioCapture {
 
         let mut resampled = Vec::with_capacity(output_len);
         for i in 0..output_len {
-            let src_idx = i as f64 * ratio;
+            let src_idx = f64::from(u32::try_from(i).unwrap_or(u32::MAX)) * ratio;
             let src_idx_floor = src_idx.floor() as usize;
             let src_idx_ceil = (src_idx_floor + 1).min(mono_samples.len() - 1);
-            let fract = src_idx - src_idx_floor as f64;
+            let fract = src_idx - f64::from(u32::try_from(src_idx_floor).unwrap_or(0));
 
             let sample = if src_idx_floor < mono_samples.len() {
                 let s1 = mono_samples[src_idx_floor];
@@ -253,6 +256,7 @@ impl AudioCapture {
 }
 
 #[cfg(test)]
+#[allow(clippy::float_cmp)] // Test assertions with known exact values
 mod tests {
     use super::*;
 
@@ -487,7 +491,8 @@ mod tests {
         let result = capture.convert_to_16khz_mono(&samples).unwrap();
 
         // Should be approximately 20 samples at 16kHz (2x ratio)
-        assert!((result.len() as f32 - 20.0).abs() < 2.0);
+        let len_f32 = result.len() as f32;
+        assert!((len_f32 - 20.0).abs() < 2.0);
     }
 
     #[test]
@@ -500,7 +505,8 @@ mod tests {
         let result = capture.convert_to_16khz_mono(&samples).unwrap();
 
         // Should be approximately 10 samples at 16kHz (0.5x ratio)
-        assert!((result.len() as f32 - 10.0).abs() < 2.0);
+        let len_f32 = result.len() as f32;
+        assert!((len_f32 - 10.0).abs() < 2.0);
     }
 
     // Integration tests (require audio hardware, run with: cargo test -- --ignored)

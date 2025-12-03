@@ -63,7 +63,10 @@ impl HotkeyManager {
 
     /// Handle hotkey press event
     pub fn on_press(&self) {
-        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         match *state {
             AppState::Idle => {
                 info!("🎤 Hotkey pressed - recording started");
@@ -73,7 +76,7 @@ impl HotkeyManager {
                 if let Err(e) = self
                     .audio
                     .lock()
-                    .unwrap_or_else(|e| e.into_inner())
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
                     .start_recording()
                 {
                     warn!(error = %e, "❌ Failed to start recording");
@@ -92,7 +95,10 @@ impl HotkeyManager {
 
     /// Handle hotkey release event
     pub fn on_release(&self) {
-        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         match *state {
             AppState::Recording => {
                 info!("⏹️  Hotkey released - processing audio");
@@ -102,11 +108,11 @@ impl HotkeyManager {
                 match self
                     .audio
                     .lock()
-                    .unwrap_or_else(|e| e.into_inner())
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
                     .stop_recording()
                 {
                     Ok(samples) => {
-                        let duration_secs = samples.len() as f32 / 16000.0;
+                        let duration_secs = samples.len() as f64 / 16000.0;
                         info!(
                             sample_count = samples.len(),
                             duration_secs = format!("{:.1}", duration_secs),
@@ -179,7 +185,9 @@ impl HotkeyManager {
                                 }
 
                                 // Set state to Idle after processing (always recover)
-                                let mut state = state_arc.lock().unwrap_or_else(|e| e.into_inner());
+                                let mut state = state_arc
+                                    .lock()
+                                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                                 *state = AppState::Idle;
                                 info!("✓ Ready for next recording");
                             });

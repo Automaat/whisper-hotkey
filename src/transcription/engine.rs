@@ -187,14 +187,9 @@ mod tests {
     #[test]
     #[ignore = "requires actual model file"]
     fn test_model_load_success() {
-        let model_path = match get_test_model_path() {
-            Some(path) => path,
-            None => {
-                eprintln!(
-                    "Skipping test: no model found at ~/.whisper-hotkey/models/ggml-tiny.bin"
-                );
-                return;
-            }
+        let Some(model_path) = get_test_model_path() else {
+            eprintln!("Skipping test: no model found at ~/.whisper-hotkey/models/ggml-tiny.bin");
+            return;
         };
 
         let engine = TranscriptionEngine::new(&model_path, 4, 5, None);
@@ -204,12 +199,9 @@ mod tests {
     #[test]
     #[ignore = "requires actual model file"]
     fn test_transcribe_silence() {
-        let model_path = match get_test_model_path() {
-            Some(path) => path,
-            None => {
-                eprintln!("Skipping test: no model found");
-                return;
-            }
+        let Some(model_path) = get_test_model_path() else {
+            eprintln!("Skipping test: no model found");
+            return;
         };
 
         let engine = TranscriptionEngine::new(&model_path, 4, 5, None).unwrap();
@@ -232,12 +224,9 @@ mod tests {
     #[test]
     #[ignore = "requires actual model file"]
     fn test_transcribe_empty_audio() {
-        let model_path = match get_test_model_path() {
-            Some(path) => path,
-            None => {
-                eprintln!("Skipping test: no model found");
-                return;
-            }
+        let Some(model_path) = get_test_model_path() else {
+            eprintln!("Skipping test: no model found");
+            return;
         };
 
         let engine = TranscriptionEngine::new(&model_path, 4, 5, None).unwrap();
@@ -255,12 +244,9 @@ mod tests {
     #[test]
     #[ignore = "requires actual model file"]
     fn test_transcribe_short_audio() {
-        let model_path = match get_test_model_path() {
-            Some(path) => path,
-            None => {
-                eprintln!("Skipping test: no model found");
-                return;
-            }
+        let Some(model_path) = get_test_model_path() else {
+            eprintln!("Skipping test: no model found");
+            return;
         };
 
         let engine = TranscriptionEngine::new(&model_path, 4, 5, None).unwrap();
@@ -288,12 +274,9 @@ mod tests {
     #[test]
     #[ignore = "requires actual model file"]
     fn test_multiple_transcriptions() {
-        let model_path = match get_test_model_path() {
-            Some(path) => path,
-            None => {
-                eprintln!("Skipping test: no model found");
-                return;
-            }
+        let Some(model_path) = get_test_model_path() else {
+            eprintln!("Skipping test: no model found");
+            return;
         };
 
         let engine = TranscriptionEngine::new(&model_path, 4, 5, None).unwrap();
@@ -309,12 +292,9 @@ mod tests {
     #[test]
     #[ignore = "requires actual model file"]
     fn test_transcribe_different_lengths() {
-        let model_path = match get_test_model_path() {
-            Some(path) => path,
-            None => {
-                eprintln!("Skipping test: no model found");
-                return;
-            }
+        let Some(model_path) = get_test_model_path() else {
+            eprintln!("Skipping test: no model found");
+            return;
         };
 
         let engine = TranscriptionEngine::new(&model_path, 4, 5, None).unwrap();
@@ -332,12 +312,9 @@ mod tests {
     #[test]
     #[ignore = "requires actual model file"]
     fn test_long_recording_30s() {
-        let model_path = match get_test_model_path() {
-            Some(path) => path,
-            None => {
-                eprintln!("Skipping test: no model found");
-                return;
-            }
+        let Some(model_path) = get_test_model_path() else {
+            eprintln!("Skipping test: no model found");
+            return;
         };
 
         let engine = TranscriptionEngine::new(&model_path, 4, 5, None).unwrap();
@@ -355,12 +332,9 @@ mod tests {
         // NOTE: This test validates that different optimization parameters are accepted
         // without crashing, but does not verify that they actually affect behavior or
         // transcription quality. For performance validation, see manual tests in TESTING.md.
-        let model_path = match get_test_model_path() {
-            Some(path) => path,
-            None => {
-                eprintln!("Skipping test: no model found");
-                return;
-            }
+        let Some(model_path) = get_test_model_path() else {
+            eprintln!("Skipping test: no model found");
+            return;
         };
 
         // Test with different optimization params
@@ -379,12 +353,9 @@ mod tests {
     #[test]
     #[ignore = "requires actual model file"]
     fn test_transcribe_noise() {
-        let model_path = match get_test_model_path() {
-            Some(path) => path,
-            None => {
-                eprintln!("Skipping test: no model found");
-                return;
-            }
+        let Some(model_path) = get_test_model_path() else {
+            eprintln!("Skipping test: no model found");
+            return;
         };
 
         let engine = TranscriptionEngine::new(&model_path, 4, 5, None).unwrap();
