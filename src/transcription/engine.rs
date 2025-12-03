@@ -20,8 +20,8 @@ pub enum TranscriptionError {
 pub struct TranscriptionEngine {
     #[allow(dead_code)] // Used in transcribe() method (Phase 5)
     ctx: Arc<Mutex<WhisperContext>>,
-    threads: usize,
-    beam_size: usize,
+    threads: i32,
+    beam_size: i32,
     language: Option<String>,
 }
 
@@ -45,6 +45,17 @@ impl TranscriptionEngine {
                 source: anyhow::anyhow!("beam_size must be > 0"),
             });
         }
+
+        // Validate that threads and beam_size fit in i32 (required by whisper-rs API)
+        let threads_i32 = i32::try_from(threads).map_err(|_| TranscriptionError::ModelLoad {
+            path: model_path.display().to_string(),
+            source: anyhow::anyhow!("threads value too large (max: {})", i32::MAX),
+        })?;
+        let beam_size_i32 =
+            i32::try_from(beam_size).map_err(|_| TranscriptionError::ModelLoad {
+                path: model_path.display().to_string(),
+                source: anyhow::anyhow!("beam_size value too large (max: {})", i32::MAX),
+            })?;
 
         tracing::info!(
             path = %model_path.display(),
@@ -73,8 +84,8 @@ impl TranscriptionEngine {
 
         Ok(Self {
             ctx: Arc::new(Mutex::new(ctx)),
-            threads,
-            beam_size,
+            threads: threads_i32,
+            beam_size: beam_size_i32,
             language,
         })
     }
@@ -98,7 +109,7 @@ impl TranscriptionEngine {
         // Configure transcription parameters with optimization settings
         let strategy = if self.beam_size > 1 {
             SamplingStrategy::BeamSearch {
-                beam_size: self.beam_size as i32,
+                beam_size: self.beam_size,
                 patience: -1.0,
             }
         } else {
@@ -106,7 +117,7 @@ impl TranscriptionEngine {
         };
 
         let mut params = FullParams::new(strategy);
-        params.set_n_threads(self.threads as i32);
+        params.set_n_threads(self.threads);
         params.set_print_special(false);
         params.set_print_progress(false);
         params.set_print_realtime(false);

@@ -159,11 +159,12 @@ impl AudioCapture {
             samples.to_vec()
         } else {
             // Average channels (simple downmix)
+            let channels_f64 = f64::from(self.device_channels);
             samples
                 .chunks(self.device_channels as usize)
                 .map(|frame| {
-                    let sum: f32 = frame.iter().sum();
-                    sum / (frame.len() as f32)
+                    let sum_f64: f64 = frame.iter().map(|&s| f64::from(s)).sum();
+                    (sum_f64 / channels_f64) as f32
                 })
                 .collect()
         };
@@ -184,22 +185,39 @@ impl AudioCapture {
 
         // Simple linear interpolation resampling
         let start_resample = std::time::Instant::now();
-        let ratio = self.device_sample_rate as f64 / target_sample_rate as f64;
-        let output_len = (mono_samples.len() as f64 / ratio).ceil() as usize;
+        let ratio = f64::from(self.device_sample_rate) / f64::from(target_sample_rate);
+
+        // Calculate output length - ratio is always positive for valid sample rates
+        let output_len_f64 = (mono_samples.len() as f64) / ratio;
+        let output_len = if output_len_f64.is_finite() && output_len_f64 >= 0.0 {
+            output_len_f64.ceil() as usize
+        } else {
+            mono_samples.len()
+        };
 
         let mut resampled = Vec::with_capacity(output_len);
         for i in 0..output_len {
-            let src_idx = f64::from(u32::try_from(i).unwrap_or(u32::MAX)) * ratio;
-            let src_idx_floor = src_idx.floor() as usize;
-            let src_idx_ceil = (src_idx_floor + 1).min(mono_samples.len() - 1);
-            let fract = src_idx - f64::from(u32::try_from(src_idx_floor).unwrap_or(0));
+            // Calculate source index with linear interpolation
+            let src_idx_f64 = (i as f64) * ratio;
+
+            // Floor gives integer part, safe because src_idx >= 0
+            let src_idx_floor = if src_idx_f64 >= 0.0 && src_idx_f64 < (usize::MAX as f64) {
+                src_idx_f64.floor() as usize
+            } else {
+                0
+            };
+
+            let src_idx_ceil = (src_idx_floor + 1).min(mono_samples.len().saturating_sub(1));
+            let fract = src_idx_f64 - src_idx_f64.floor();
 
             let sample = if src_idx_floor < mono_samples.len() {
-                let s1 = mono_samples[src_idx_floor];
-                let s2 = mono_samples[src_idx_ceil];
-                s1 + (s2 - s1) * fract as f32
+                let s1 = f64::from(mono_samples[src_idx_floor]);
+                let s2 = f64::from(mono_samples[src_idx_ceil]);
+                // Use mul_add for better precision
+                let interpolated = s1.mul_add(1.0 - fract, s2 * fract);
+                interpolated as f32
             } else {
-                0.0
+                0.0_f32
             };
 
             resampled.push(sample);
