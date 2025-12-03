@@ -65,7 +65,7 @@ impl TranscriptionEngine {
         let ctx = WhisperContext::new_with_params(path_str, params).map_err(|e| {
             TranscriptionError::ModelLoad {
                 path: model_path.display().to_string(),
-                source: anyhow::anyhow!("{:?}", e),
+                source: anyhow::anyhow!("{e:?}"),
             }
         })?;
 
@@ -88,7 +88,7 @@ impl TranscriptionEngine {
         let ctx = self
             .ctx
             .lock()
-            .map_err(|e| anyhow::anyhow!("mutex poisoned: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("mutex poisoned: {e}"))?;
 
         // Create state for this transcription
         let mut state = ctx
@@ -152,6 +152,7 @@ unsafe impl Send for TranscriptionEngine {}
 unsafe impl Sync for TranscriptionEngine {}
 
 #[cfg(test)]
+#[allow(clippy::print_stderr)] // Test diagnostics
 mod tests {
     use super::*;
     use std::path::PathBuf;
@@ -324,7 +325,7 @@ mod tests {
         for length in lengths {
             let audio: Vec<f32> = vec![0.0; length];
             let result = engine.transcribe(&audio);
-            assert!(result.is_ok(), "Failed to transcribe {} samples", length);
+            assert!(result.is_ok(), "Failed to transcribe {length} samples");
         }
     }
 

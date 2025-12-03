@@ -70,7 +70,12 @@ impl HotkeyManager {
                 *state = AppState::Recording;
 
                 // Start audio recording with error recovery
-                if let Err(e) = self.audio.lock().unwrap_or_else(|e| e.into_inner()).start_recording() {
+                if let Err(e) = self
+                    .audio
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .start_recording()
+                {
                     warn!(error = %e, "❌ Failed to start recording");
                     *state = AppState::Idle;
                     // Continue running - this is a transient error, user can try again
@@ -94,7 +99,12 @@ impl HotkeyManager {
                 *state = AppState::Processing;
 
                 // Stop audio recording and get samples
-                match self.audio.lock().unwrap_or_else(|e| e.into_inner()).stop_recording() {
+                match self
+                    .audio
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .stop_recording()
+                {
                     Ok(samples) => {
                         let duration_secs = samples.len() as f32 / 16000.0;
                         info!(
@@ -114,7 +124,7 @@ impl HotkeyManager {
                         let debug_path = std::path::PathBuf::from(home)
                             .join(".whisper-hotkey")
                             .join("debug")
-                            .join(format!("recording_{}.wav", timestamp));
+                            .join(format!("recording_{timestamp}.wav"));
 
                         if let Err(e) = AudioCapture::save_wav_debug(&samples, &debug_path) {
                             warn!(error = %e, path = ?debug_path, "failed to save debug WAV");
@@ -215,7 +225,7 @@ impl HotkeyManager {
                 "Option" | "Alt" => result |= Modifiers::ALT,
                 "Command" | "Super" => result |= Modifiers::SUPER,
                 "Shift" => result |= Modifiers::SHIFT,
-                _ => return Err(anyhow!("unknown modifier: {}", modifier)),
+                _ => return Err(anyhow!("unknown modifier: {modifier}")),
             }
         }
         Ok(result)
@@ -249,7 +259,7 @@ impl HotkeyManager {
             "X" => Ok(Code::KeyX),
             "Y" => Ok(Code::KeyY),
             "Z" => Ok(Code::KeyZ),
-            _ => Err(anyhow!("unsupported key: {}", key)),
+            _ => Err(anyhow!("unsupported key: {key}")),
         }
     }
 }

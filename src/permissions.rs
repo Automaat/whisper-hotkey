@@ -43,10 +43,14 @@ pub fn check_input_monitoring_permission() -> Result<()> {
         tracing::warn!("input monitoring permission required for global hotkeys");
         tracing::warn!("if hotkeys don't work, enable in System Settings > Privacy & Security > Input Monitoring");
 
-        println!("⚠️  Input Monitoring permission required:");
-        println!("   If hotkeys don't work, go to:");
-        println!("   System Settings → Privacy & Security → Input Monitoring");
-        println!("   Add and enable your terminal app (Terminal/iTerm2/WezTerm/etc)\n");
+        // CLI user-facing output
+        #[allow(clippy::print_stdout)]
+        {
+            println!("⚠️  Input Monitoring permission required:");
+            println!("   If hotkeys don't work, go to:");
+            println!("   System Settings → Privacy & Security → Input Monitoring");
+            println!("   Add and enable your terminal app (Terminal/iTerm2/WezTerm/etc)\n");
+        }
     }
 
     Ok(())

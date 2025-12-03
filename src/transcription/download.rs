@@ -7,7 +7,7 @@ const MODEL_BASE_URL: &str = "https://huggingface.co/ggerganov/whisper.cpp/resol
 
 /// Maps model names to their HuggingFace filenames
 fn model_filename(model_name: &str) -> String {
-    format!("ggml-{}.bin", model_name)
+    format!("ggml-{model_name}.bin")
 }
 
 /// Ensures the model is downloaded, returns true if downloaded, false if already existed
@@ -33,7 +33,7 @@ pub fn ensure_model_downloaded(model_name: &str, model_path: &Path) -> Result<bo
 
 fn download_model(model_name: &str, model_path: &Path) -> Result<()> {
     let filename = model_filename(model_name);
-    let url = format!("{}/{}", MODEL_BASE_URL, filename);
+    let url = format!("{MODEL_BASE_URL}/{filename}");
 
     // Create parent directory if it doesn't exist
     if let Some(parent) = model_path.parent() {
@@ -46,7 +46,7 @@ fn download_model(model_name: &str, model_path: &Path) -> Result<()> {
     let temp_path = model_path.with_extension("tmp");
 
     let response = reqwest::blocking::get(&url)
-        .with_context(|| format!("failed to download model from {}", url))?;
+        .with_context(|| format!("failed to download model from {url}"))?;
 
     if !response.status().is_success() {
         anyhow::bail!("download failed with status {}: {}", response.status(), url);

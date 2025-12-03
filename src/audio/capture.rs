@@ -1,7 +1,10 @@
 use anyhow::{Context, Result};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use hound::{WavSpec, WavWriter};
-use ringbuf::{traits::{Consumer, Producer, Split}, HeapCons, HeapRb};
+use ringbuf::{
+    traits::{Consumer, Producer, Split},
+    HeapCons, HeapRb,
+};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
