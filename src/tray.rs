@@ -302,8 +302,8 @@ impl TrayManager {
         menu.append(&open_config)
             .context("failed to append open config item")?;
 
-        let quit = MenuItem::new("Quit", true, None);
-        menu.append(&quit).context("failed to append quit item")?;
+        menu.append(&PredefinedMenuItem::quit(None))
+            .context("failed to append quit item")?;
 
         Ok(menu)
     }
@@ -323,6 +323,7 @@ impl TrayManager {
 
         if let Ok(event) = MenuEvent::receiver().try_recv() {
             let id = event.id.0.as_str();
+            tracing::debug!("tray menu event received: id={:?}", id);
             return Self::parse_menu_event(id);
         }
 
