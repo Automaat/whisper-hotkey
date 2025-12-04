@@ -69,11 +69,10 @@ pub fn insert_text(text: &str) -> Result<(), TextInsertionError> {
 
     // Create a keyboard event with dummy keycode (will be overridden by string)
     debug!("creating keyboard CGEvent");
-    let event = CGEvent::new_keyboard_event(source, 0, true)
-        .map_err(|()| {
-            error!("FAILED: CGEvent creation - unexpected error after permission check passed");
-            TextInsertionError::EventCreation
-        })?;
+    let event = CGEvent::new_keyboard_event(source, 0, true).map_err(|()| {
+        error!("FAILED: CGEvent creation - unexpected error after permission check passed");
+        TextInsertionError::EventCreation
+    })?;
     debug!("✓ keyboard CGEvent created successfully");
 
     // Set the text to insert
