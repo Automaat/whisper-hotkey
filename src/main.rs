@@ -325,9 +325,8 @@ async fn main() -> Result<()> {
                             tracing::info!("config file location: {:?}", path);
                         }
                     }
-                }
-                // Note: Quit case removed - PredefinedMenuItem::quit() calls native
-                // macOS terminate: selector which bypasses event system entirely
+                } // Note: Quit case removed - PredefinedMenuItem::quit() calls native
+                  // macOS terminate: selector which bypasses event system entirely
             }
         }
 

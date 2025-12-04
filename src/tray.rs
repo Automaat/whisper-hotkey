@@ -391,7 +391,6 @@ impl TrayManager {
             "Open Config File" => Some(TrayCommand::OpenConfigFile),
             // Note: "Quit" not handled here - PredefinedMenuItem::quit() uses native
             // macOS terminate: selector which bypasses event system entirely
-
             _ => None,
         }
     }
