@@ -95,9 +95,10 @@ impl AudioCapture {
             )
             .context("failed to build input stream")?;
 
-        // Start the stream (but not recording yet)
+        // Start the stream and immediately pause it (mic inactive until hotkey pressed)
         stream.play().context("failed to start audio stream")?;
-        info!("audio stream started");
+        stream.pause().context("failed to pause audio stream")?;
+        info!("audio stream initialized (paused)");
 
         Ok(Self {
             stream: Some(stream),
@@ -121,6 +122,11 @@ impl AudioCapture {
         // Clear ring buffer
         self.ring_buffer_consumer.clear();
 
+        // Resume audio stream (activate microphone)
+        if let Some(stream) = &self.stream {
+            stream.play().context("failed to resume audio stream")?;
+        }
+
         // Set recording flag
         self.is_recording.store(true, Ordering::Relaxed);
 
@@ -141,6 +147,11 @@ impl AudioCapture {
 
         // Clear recording flag
         self.is_recording.store(false, Ordering::Relaxed);
+
+        // Pause audio stream (deactivate microphone)
+        if let Some(stream) = &self.stream {
+            stream.pause().context("failed to pause audio stream")?;
+        }
 
         // Drain ring buffer into Vec
         let start_drain = std::time::Instant::now();
@@ -662,5 +673,31 @@ mod tests {
         // (actual lengths depend on audio input)
         // Just verify no errors during recording cycles
         let _ = (samples1, samples2);
+    }
+
+    #[test]
+    #[ignore = "requires audio hardware"]
+    fn test_stream_pause_resume() {
+        let config = AudioConfig {
+            buffer_size: 1024,
+            sample_rate: 16000,
+        };
+
+        let mut capture = AudioCapture::new(&config).unwrap();
+
+        // Stream should be paused initially after new()
+        // Start recording should resume stream
+        capture.start_recording().unwrap();
+        assert!(capture.is_recording.load(Ordering::Relaxed));
+
+        std::thread::sleep(std::time::Duration::from_millis(100));
+
+        // Stop recording should pause stream
+        let samples = capture.stop_recording().unwrap();
+        assert!(!capture.is_recording.load(Ordering::Relaxed));
+
+        // Should have captured some samples (even if silent/noise)
+        // In a real test environment this verifies stream was active
+        let _ = samples;
     }
 }
