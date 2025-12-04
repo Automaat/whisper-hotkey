@@ -86,7 +86,12 @@ impl TrayManager {
         tracing::debug!("loading icon for state {:?}: {:?}", state, icon_path);
 
         let image = image::open(&icon_path)
-            .with_context(|| format!("failed to load {icon_filename} from {}", icon_path.display()))?
+            .with_context(|| {
+                format!(
+                    "failed to load {icon_filename} from {}",
+                    icon_path.display()
+                )
+            })?
             .into_rgba8();
 
         let (width, height) = image.dimensions();

@@ -13,7 +13,11 @@
 //! Run with: `cargo test --test phase5_integration_test -- --ignored`
 
 // Allow print macros and eprintln for test output
-#![allow(clippy::print_stdout, clippy::print_stderr, clippy::uninlined_format_args)]
+#![allow(
+    clippy::print_stdout,
+    clippy::print_stderr,
+    clippy::uninlined_format_args
+)]
 // Allow cast precision loss for test audio generation
 #![allow(clippy::cast_precision_loss)]
 

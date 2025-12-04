@@ -271,7 +271,11 @@ mod tests {
 
     #[test]
     #[ignore = "requires actual model file"]
-    #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    #[allow(
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss
+    )]
     fn test_transcribe_short_audio() {
         let Some(model_path) = get_test_model_path() else {
             eprintln!("Skipping test: no model found");

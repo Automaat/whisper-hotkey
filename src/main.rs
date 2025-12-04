@@ -222,8 +222,7 @@ async fn main() -> Result<()> {
                 tray::TrayCommand::UpdateHotkey { modifiers, key } => {
                     config.hotkey.modifiers = modifiers;
                     config.hotkey.key = key;
-                    if let Err(e) =
-                        save_and_update(&config, &tray_manager, "Hotkey updated", true)
+                    if let Err(e) = save_and_update(&config, &tray_manager, "Hotkey updated", true)
                     {
                         tracing::error!("failed to update config: {:?}", e);
                         println!("⚠ Failed to save config: {}", e);
@@ -231,9 +230,7 @@ async fn main() -> Result<()> {
                 }
                 tray::TrayCommand::UpdateModel { name } => {
                     config.model.name = name;
-                    if let Err(e) =
-                        save_and_update(&config, &tray_manager, "Model updated", true)
-                    {
+                    if let Err(e) = save_and_update(&config, &tray_manager, "Model updated", true) {
                         tracing::error!("failed to update config: {:?}", e);
                         println!("⚠ Failed to save config: {}", e);
                     }
@@ -263,9 +260,10 @@ async fn main() -> Result<()> {
                     }
                 }
                 tray::TrayCommand::UpdateLanguage(lang) => {
-                    let msg = lang
-                        .as_ref()
-                        .map_or_else(|| "Language set to auto-detect".to_owned(), |l| format!("Language updated to {l}"));
+                    let msg = lang.as_ref().map_or_else(
+                        || "Language set to auto-detect".to_owned(),
+                        |l| format!("Language updated to {l}"),
+                    );
                     config.model.language = lang;
                     if let Err(e) = save_and_update(&config, &tray_manager, &msg, false) {
                         tracing::error!("failed to update config: {:?}", e);
