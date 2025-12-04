@@ -18,7 +18,7 @@ pub enum TrayCommand {
     TogglePreload,
     ToggleTelemetry,
     OpenConfigFile,
-    Quit,
+    // Note: Quit removed - PredefinedMenuItem::quit() bypasses event system entirely
 }
 
 pub struct TrayManager {
@@ -302,8 +302,8 @@ impl TrayManager {
         menu.append(&open_config)
             .context("failed to append open config item")?;
 
-        let quit = MenuItem::new("Quit", true, None);
-        menu.append(&quit).context("failed to append quit item")?;
+        menu.append(&PredefinedMenuItem::quit(None))
+            .context("failed to append quit item")?;
 
         Ok(menu)
     }
@@ -323,6 +323,7 @@ impl TrayManager {
 
         if let Ok(event) = MenuEvent::receiver().try_recv() {
             let id = event.id.0.as_str();
+            tracing::debug!("tray menu event received: id={:?}", id);
             return Self::parse_menu_event(id);
         }
 
@@ -388,8 +389,8 @@ impl TrayManager {
             "Preload Model" => Some(TrayCommand::TogglePreload),
             "Telemetry" => Some(TrayCommand::ToggleTelemetry),
             "Open Config File" => Some(TrayCommand::OpenConfigFile),
-            "Quit" => Some(TrayCommand::Quit),
-
+            // Note: "Quit" not handled here - PredefinedMenuItem::quit() uses native
+            // macOS terminate: selector which bypasses event system entirely
             _ => None,
         }
     }
@@ -487,8 +488,7 @@ mod tests {
         let cmd = TrayManager::parse_menu_event("Open Config File");
         assert!(matches!(cmd, Some(TrayCommand::OpenConfigFile)));
 
-        let cmd = TrayManager::parse_menu_event("Quit");
-        assert!(matches!(cmd, Some(TrayCommand::Quit)));
+        // Note: Quit not tested - PredefinedMenuItem::quit() bypasses event system
     }
 
     #[test]
@@ -515,9 +515,9 @@ mod tests {
 
     #[test]
     fn test_tray_command_debug() {
-        let cmd = TrayCommand::Quit;
+        let cmd = TrayCommand::OpenConfigFile;
         let debug_str = format!("{cmd:?}");
-        assert!(debug_str.contains("Quit"));
+        assert!(debug_str.contains("OpenConfigFile"));
     }
 
     #[test]
