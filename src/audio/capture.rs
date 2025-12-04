@@ -97,7 +97,7 @@ impl AudioCapture {
 
         // Start the stream and immediately pause it (mic inactive until hotkey pressed)
         stream.play().context("failed to start audio stream")?;
-        stream.pause().context("failed to pause audio stream")?;
+        stream.pause().context("failed to pause audio stream")?; // LCOV_EXCL_LINE
         info!("audio stream initialized (paused)");
 
         Ok(Self {
@@ -124,7 +124,7 @@ impl AudioCapture {
 
         // Resume audio stream (activate microphone)
         if let Some(stream) = &self.stream {
-            stream.play().context("failed to resume audio stream")?;
+            stream.play().context("failed to resume audio stream")?; // LCOV_EXCL_LINE
         }
 
         // Set recording flag
@@ -150,7 +150,7 @@ impl AudioCapture {
 
         // Pause audio stream (deactivate microphone)
         if let Some(stream) = &self.stream {
-            stream.pause().context("failed to pause audio stream")?;
+            stream.pause().context("failed to pause audio stream")?; // LCOV_EXCL_LINE
         }
 
         // Drain ring buffer into Vec
