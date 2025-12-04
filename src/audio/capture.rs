@@ -122,13 +122,13 @@ impl AudioCapture {
         // Clear ring buffer
         self.ring_buffer_consumer.clear();
 
+        // Set recording flag BEFORE resuming stream to avoid race condition
+        self.is_recording.store(true, Ordering::Relaxed);
+
         // Resume audio stream (activate microphone)
         if let Some(stream) = &self.stream {
             stream.play().context("failed to resume audio stream")?; // LCOV_EXCL_LINE
         }
-
-        // Set recording flag
-        self.is_recording.store(true, Ordering::Relaxed);
 
         let duration = start.elapsed();
         info!(latency_us = duration.as_micros(), "recording started");
