@@ -3,69 +3,93 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
+/// Application configuration
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Config {
+    /// Hotkey configuration
     #[allow(dead_code)] // Used in Phase 2+
     pub hotkey: HotkeyConfig,
+    /// Audio capture configuration
     #[allow(dead_code)] // Used in Phase 3+
     pub audio: AudioConfig,
+    /// Whisper model configuration
     #[allow(dead_code)] // Used in Phase 4+
     pub model: ModelConfig,
+    /// Telemetry configuration
     pub telemetry: TelemetryConfig,
 }
 
+/// Hotkey configuration
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct HotkeyConfig {
+    /// Modifier keys (e.g., `["Command", "Shift"]`)
     #[allow(dead_code)] // Used in Phase 2
     pub modifiers: Vec<String>,
+    /// Main key (e.g., "V")
     #[allow(dead_code)] // Used in Phase 2
     pub key: String,
 }
 
+/// Audio capture configuration
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct AudioConfig {
+    /// Ring buffer size in samples
     #[allow(dead_code)] // Used in Phase 3
     pub buffer_size: usize,
+    /// Sample rate in Hz
     #[allow(dead_code)] // Used in Phase 3
     pub sample_rate: u32,
 }
 
+/// Whisper model configuration
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ModelConfig {
+    /// Model name (e.g., "base.en")
     #[allow(dead_code)] // Used in Phase 4
     pub name: String,
+    /// Path to model file
     #[allow(dead_code)] // Used in Phase 4
     pub path: String,
+    /// Preload model at startup
     #[allow(dead_code)] // Used in Phase 4
     pub preload: bool,
+    /// Number of CPU threads for inference
     #[serde(default = "default_threads")]
     pub threads: usize,
+    /// Beam search width (higher = slower but more accurate)
     #[serde(default = "default_beam_size")]
     pub beam_size: usize,
+    /// Language code (None = auto-detect)
     #[serde(default = "default_language")]
     pub language: Option<String>,
 }
 
-fn default_threads() -> usize {
+const fn default_threads() -> usize {
     4 // Optimal for M1/M2 chips
 }
 
-fn default_beam_size() -> usize {
+const fn default_beam_size() -> usize {
     5 // Balance speed/accuracy
 }
 
-fn default_language() -> Option<String> {
+const fn default_language() -> Option<String> {
     None // Auto-detect by default
 }
 
+/// Telemetry and crash logging configuration
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct TelemetryConfig {
+    /// Enable crash logging
     pub enabled: bool,
+    /// Path to log file
     pub log_path: String,
 }
 
 impl Config {
     /// Load config from ~/.whisper-hotkey.toml
+    ///
+    /// # Errors
+    /// Returns error if config file doesn't exist, is invalid TOML, or path expansion fails
     pub fn load() -> Result<Self> {
         let config_path = Self::config_path()?;
 
@@ -75,7 +99,7 @@ impl Config {
 
         let contents = fs::read_to_string(&config_path).context("failed to read config file")?;
 
-        let config: Config = toml::from_str(&contents).context("failed to parse config TOML")?;
+        let config: Self = toml::from_str(&contents).context("failed to parse config TOML")?;
 
         Ok(config)
     }
@@ -111,6 +135,9 @@ log_path = "~/.whisper-hotkey/crash.log"
     }
 
     /// Save config to ~/.whisper-hotkey.toml
+    ///
+    /// # Errors
+    /// Returns error if TOML serialization fails or file write fails
     pub fn save(&self) -> Result<()> {
         let config_path = Self::config_path()?;
         let contents =
@@ -120,11 +147,17 @@ log_path = "~/.whisper-hotkey/crash.log"
     }
 
     /// Get config file path for external opening
+    ///
+    /// # Errors
+    /// Returns error if HOME environment variable is not set
     pub fn get_config_path() -> Result<PathBuf> {
         Self::config_path()
     }
 
     /// Expand ~ in paths to home directory
+    ///
+    /// # Errors
+    /// Returns error if HOME environment variable is not set
     #[allow(dead_code)] // Used in Phase 3+
     pub fn expand_path(path: &str) -> Result<PathBuf> {
         if let Some(stripped) = path.strip_prefix("~/") {
@@ -281,14 +314,14 @@ log_path = "/tmp/crash.log"
     }
 
     #[test]
-    #[ignore] // Requires filesystem access
+    #[ignore = "requires filesystem access"]
     fn test_load_creates_default_if_missing() {
         // This test would require setting up a temp directory and manipulating HOME
         // Skip for now as it's integration-level testing
     }
 
     #[test]
-    #[ignore] // Requires filesystem access
+    #[ignore = "requires filesystem access"]
     fn test_load_reads_existing_config() {
         // This test would require creating a temp config file
         // Skip for now as it's integration-level testing
@@ -298,16 +331,16 @@ log_path = "/tmp/crash.log"
     fn test_config_serialize() {
         let config = Config {
             hotkey: HotkeyConfig {
-                modifiers: vec!["Control".to_string(), "Option".to_string()],
-                key: "Z".to_string(),
+                modifiers: vec!["Control".to_owned(), "Option".to_owned()],
+                key: "Z".to_owned(),
             },
             audio: AudioConfig {
                 buffer_size: 1024,
                 sample_rate: 16000,
             },
             model: ModelConfig {
-                name: "small".to_string(),
-                path: "~/.whisper-hotkey/models/ggml-small.bin".to_string(),
+                name: "small".to_owned(),
+                path: "~/.whisper-hotkey/models/ggml-small.bin".to_owned(),
                 preload: true,
                 threads: 4,
                 beam_size: 5,
@@ -315,7 +348,7 @@ log_path = "/tmp/crash.log"
             },
             telemetry: TelemetryConfig {
                 enabled: true,
-                log_path: "~/.whisper-hotkey/crash.log".to_string(),
+                log_path: "~/.whisper-hotkey/crash.log".to_owned(),
             },
         };
 
@@ -330,24 +363,24 @@ log_path = "/tmp/crash.log"
     fn test_config_roundtrip() {
         let original = Config {
             hotkey: HotkeyConfig {
-                modifiers: vec!["Command".to_string()],
-                key: "V".to_string(),
+                modifiers: vec!["Command".to_owned()],
+                key: "V".to_owned(),
             },
             audio: AudioConfig {
                 buffer_size: 2048,
                 sample_rate: 16000,
             },
             model: ModelConfig {
-                name: "base".to_string(),
-                path: "/tmp/model.bin".to_string(),
+                name: "base".to_owned(),
+                path: "/tmp/model.bin".to_owned(),
                 preload: false,
                 threads: 8,
                 beam_size: 10,
-                language: Some("pl".to_string()),
+                language: Some("pl".to_owned()),
             },
             telemetry: TelemetryConfig {
                 enabled: false,
-                log_path: "/tmp/log.txt".to_string(),
+                log_path: "/tmp/log.txt".to_owned(),
             },
         };
 
@@ -397,6 +430,6 @@ enabled = true
 log_path = "/tmp/crash.log"
 "#;
         let config: Config = toml::from_str(toml).unwrap();
-        assert_eq!(config.model.language, Some("en".to_string()));
+        assert_eq!(config.model.language, Some("en".to_owned()));
     }
 }

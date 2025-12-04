@@ -1,3 +1,22 @@
+//! whisper-hotkey - macOS background app for system-wide voice-to-text
+//!
+//! Provides global hotkey-triggered voice transcription using local Whisper models.
+//! Key features:
+//! - Global hotkey registration (configurable)
+//! - Real-time audio capture via `CoreAudio`
+//! - Local Whisper transcription (privacy-focused)
+//! - Automatic text insertion via `CGEvent`
+//! - Menubar tray icon for configuration
+
+// Allow unsafe code for macOS FFI requirements (NSApp, event loop)
+#![allow(unsafe_code)]
+// Allow println for user-facing binary output
+#![allow(clippy::print_stdout, clippy::uninlined_format_args)]
+// Allow items after statements for helper functions in main
+#![allow(clippy::items_after_statements)]
+// Allow long main function (event loop with config handling)
+#![allow(clippy::too_many_lines)]
+
 mod audio;
 mod config;
 mod input;
@@ -143,7 +162,7 @@ async fn main() -> Result<()> {
     // Helper to save config, log, and update menu after config changes
     fn save_and_update(
         config: &config::Config,
-        tray_manager: &mut tray::TrayManager,
+        tray_manager: &tray::TrayManager,
         success_msg: &str,
         requires_restart: bool,
     ) -> Result<()> {
@@ -151,7 +170,7 @@ async fn main() -> Result<()> {
         let msg = if requires_restart {
             format!("{} (restart required)", success_msg)
         } else {
-            success_msg.to_string()
+            success_msg.to_owned()
         };
         println!("✓ {}", msg);
         tracing::info!("{}", success_msg.to_lowercase());
@@ -203,8 +222,7 @@ async fn main() -> Result<()> {
                 tray::TrayCommand::UpdateHotkey { modifiers, key } => {
                     config.hotkey.modifiers = modifiers;
                     config.hotkey.key = key;
-                    if let Err(e) =
-                        save_and_update(&config, &mut tray_manager, "Hotkey updated", true)
+                    if let Err(e) = save_and_update(&config, &tray_manager, "Hotkey updated", true)
                     {
                         tracing::error!("failed to update config: {:?}", e);
                         println!("⚠ Failed to save config: {}", e);
@@ -212,9 +230,7 @@ async fn main() -> Result<()> {
                 }
                 tray::TrayCommand::UpdateModel { name } => {
                     config.model.name = name;
-                    if let Err(e) =
-                        save_and_update(&config, &mut tray_manager, "Model updated", true)
-                    {
+                    if let Err(e) = save_and_update(&config, &tray_manager, "Model updated", true) {
                         tracing::error!("failed to update config: {:?}", e);
                         println!("⚠ Failed to save config: {}", e);
                     }
@@ -223,7 +239,7 @@ async fn main() -> Result<()> {
                     config.model.threads = threads;
                     if let Err(e) = save_and_update(
                         &config,
-                        &mut tray_manager,
+                        &tray_manager,
                         &format!("Threads updated to {}", threads),
                         false,
                     ) {
@@ -235,7 +251,7 @@ async fn main() -> Result<()> {
                     config.model.beam_size = beam;
                     if let Err(e) = save_and_update(
                         &config,
-                        &mut tray_manager,
+                        &tray_manager,
                         &format!("Beam size updated to {}", beam),
                         false,
                     ) {
@@ -244,13 +260,12 @@ async fn main() -> Result<()> {
                     }
                 }
                 tray::TrayCommand::UpdateLanguage(lang) => {
-                    let msg = if let Some(ref l) = lang {
-                        format!("Language updated to {}", l)
-                    } else {
-                        "Language set to auto-detect".to_string()
-                    };
+                    let msg = lang.as_ref().map_or_else(
+                        || "Language set to auto-detect".to_owned(),
+                        |l| format!("Language updated to {l}"),
+                    );
                     config.model.language = lang;
-                    if let Err(e) = save_and_update(&config, &mut tray_manager, &msg, false) {
+                    if let Err(e) = save_and_update(&config, &tray_manager, &msg, false) {
                         tracing::error!("failed to update config: {:?}", e);
                         println!("⚠ Failed to save config: {}", e);
                     }
@@ -259,7 +274,7 @@ async fn main() -> Result<()> {
                     config.audio.buffer_size = size;
                     if let Err(e) = save_and_update(
                         &config,
-                        &mut tray_manager,
+                        &tray_manager,
                         &format!("Buffer size updated to {}", size),
                         true,
                     ) {
@@ -277,7 +292,7 @@ async fn main() -> Result<()> {
                             "disabled"
                         }
                     );
-                    if let Err(e) = save_and_update(&config, &mut tray_manager, &msg, true) {
+                    if let Err(e) = save_and_update(&config, &tray_manager, &msg, true) {
                         tracing::error!("failed to update config: {:?}", e);
                         println!("⚠ Failed to save config: {}", e);
                     }
@@ -292,7 +307,7 @@ async fn main() -> Result<()> {
                             "disabled"
                         }
                     );
-                    if let Err(e) = save_and_update(&config, &mut tray_manager, &msg, true) {
+                    if let Err(e) = save_and_update(&config, &tray_manager, &msg, true) {
                         tracing::error!("failed to update config: {:?}", e);
                         println!("⚠ Failed to save config: {}", e);
                     }
@@ -326,7 +341,7 @@ async fn main() -> Result<()> {
                 println!("\nShutting down...");
                 break;
             }
-            _ = tokio::time::sleep(tokio::time::Duration::from_millis(10)) => {
+            () = tokio::time::sleep(tokio::time::Duration::from_millis(10)) => {
                 // Poll interval (10ms to avoid busy-waiting)
             }
         }

@@ -4,29 +4,46 @@ use std::sync::{Arc, Mutex};
 use thiserror::Error;
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
+/// Errors that can occur during transcription
 #[derive(Debug, Error)]
 pub enum TranscriptionError {
+    /// Failed to load Whisper model
     #[error("failed to load whisper model from {path}: {source}")]
-    ModelLoad { path: String, source: anyhow::Error },
+    ModelLoad {
+        /// Path to model file
+        path: String,
+        /// Underlying error
+        source: anyhow::Error,
+    },
 
+    /// Failed to create Whisper inference state
     #[error("failed to create whisper state")]
     #[allow(dead_code)] // Used in Phase 5
     StateCreation,
 
+    /// Transcription inference failed
     #[error("failed to transcribe audio")]
     Transcription(#[from] anyhow::Error),
 }
 
+/// Whisper transcription engine
 pub struct TranscriptionEngine {
+    /// Whisper context (thread-safe)
     #[allow(dead_code)] // Used in transcribe() method (Phase 5)
     ctx: Arc<Mutex<WhisperContext>>,
-    threads: usize,
-    beam_size: usize,
+    /// Number of CPU threads for inference
+    threads: i32,
+    /// Beam search width
+    beam_size: i32,
+    /// Language code (None = auto-detect)
     language: Option<String>,
 }
 
 impl TranscriptionEngine {
-    /// Creates a new TranscriptionEngine by loading the model from the given path
+    /// Creates a new `TranscriptionEngine` by loading the model from the given path
+    ///
+    /// # Errors
+    /// Returns error if model file doesn't exist, is invalid, or if `threads`/`beam_size` exceed `i32::MAX`
     pub fn new(
         model_path: &Path,
         threads: usize,
@@ -45,6 +62,17 @@ impl TranscriptionEngine {
                 source: anyhow::anyhow!("beam_size must be > 0"),
             });
         }
+
+        // Validate that threads and beam_size fit in i32 (required by whisper-rs API)
+        let threads_i32 = i32::try_from(threads).map_err(|_| TranscriptionError::ModelLoad {
+            path: model_path.display().to_string(),
+            source: anyhow::anyhow!("threads value too large (max: {})", i32::MAX),
+        })?;
+        let beam_size_i32 =
+            i32::try_from(beam_size).map_err(|_| TranscriptionError::ModelLoad {
+                path: model_path.display().to_string(),
+                source: anyhow::anyhow!("beam_size value too large (max: {})", i32::MAX),
+            })?;
 
         tracing::info!(
             path = %model_path.display(),
@@ -65,7 +93,7 @@ impl TranscriptionEngine {
         let ctx = WhisperContext::new_with_params(path_str, params).map_err(|e| {
             TranscriptionError::ModelLoad {
                 path: model_path.display().to_string(),
-                source: anyhow::anyhow!("{:?}", e),
+                source: anyhow::anyhow!("{e:?}"),
             }
         })?;
 
@@ -73,32 +101,33 @@ impl TranscriptionEngine {
 
         Ok(Self {
             ctx: Arc::new(Mutex::new(ctx)),
-            threads,
-            beam_size,
+            threads: threads_i32,
+            beam_size: beam_size_i32,
             language,
         })
     }
 
     /// Transcribes audio samples (16kHz mono f32) to text with language auto-detection
+    ///
+    /// # Errors
+    /// Returns error if Whisper inference fails or mutex is poisoned
     #[allow(dead_code)] // Used in Phase 5
     pub fn transcribe(&self, audio_data: &[f32]) -> Result<String, TranscriptionError> {
         let _span = tracing::debug_span!("transcription", samples = audio_data.len()).entered();
         tracing::debug!("starting transcription");
 
-        let ctx = self
+        // Create state for this transcription
+        let mut state = self
             .ctx
             .lock()
-            .map_err(|e| anyhow::anyhow!("mutex poisoned: {}", e))?;
-
-        // Create state for this transcription
-        let mut state = ctx
+            .map_err(|e| anyhow::anyhow!("mutex poisoned: {e}"))?
             .create_state()
             .map_err(|_| TranscriptionError::StateCreation)?;
 
         // Configure transcription parameters with optimization settings
         let strategy = if self.beam_size > 1 {
             SamplingStrategy::BeamSearch {
-                beam_size: self.beam_size as i32,
+                beam_size: self.beam_size,
                 patience: -1.0,
             }
         } else {
@@ -106,7 +135,7 @@ impl TranscriptionEngine {
         };
 
         let mut params = FullParams::new(strategy);
-        params.set_n_threads(self.threads as i32);
+        params.set_n_threads(self.threads);
         params.set_print_special(false);
         params.set_print_progress(false);
         params.set_print_realtime(false);
@@ -128,7 +157,7 @@ impl TranscriptionEngine {
         }
 
         // Trim whitespace
-        let result = result.trim().to_string();
+        let result = result.trim().to_owned();
 
         tracing::info!(
             segments = state.full_n_segments(),
@@ -146,10 +175,13 @@ impl TranscriptionEngine {
 // 2. All methods require acquiring the mutex lock before accessing the context
 // 3. No shared mutable state exists outside the mutex
 // 4. whisper-rs WhisperContext is documented as thread-safe when properly synchronized
+#[allow(unsafe_code)]
 unsafe impl Send for TranscriptionEngine {}
+#[allow(unsafe_code)]
 unsafe impl Sync for TranscriptionEngine {}
 
 #[cfg(test)]
+#[allow(clippy::print_stderr)] // Test diagnostics
 mod tests {
     use super::*;
     use std::path::PathBuf;
@@ -175,25 +207,18 @@ mod tests {
         let result = TranscriptionEngine::new(nonexistent_path, 4, 5, None);
 
         assert!(result.is_err());
-        match result {
-            Err(TranscriptionError::ModelLoad { path, .. }) => {
-                assert!(path.contains("nonexistent_model.bin"));
-            }
-            _ => panic!("Expected ModelLoad error"),
+        assert!(matches!(result, Err(TranscriptionError::ModelLoad { .. })));
+        if let Err(TranscriptionError::ModelLoad { path, .. }) = result {
+            assert!(path.contains("nonexistent_model.bin"));
         }
     }
 
     #[test]
-    #[ignore] // Requires actual model file
+    #[ignore = "requires actual model file"]
     fn test_model_load_success() {
-        let model_path = match get_test_model_path() {
-            Some(path) => path,
-            None => {
-                eprintln!(
-                    "Skipping test: no model found at ~/.whisper-hotkey/models/ggml-tiny.bin"
-                );
-                return;
-            }
+        let Some(model_path) = get_test_model_path() else {
+            eprintln!("Skipping test: no model found at ~/.whisper-hotkey/models/ggml-tiny.bin");
+            return;
         };
 
         let engine = TranscriptionEngine::new(&model_path, 4, 5, None);
@@ -201,14 +226,11 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Requires actual model file
+    #[ignore = "requires actual model file"]
     fn test_transcribe_silence() {
-        let model_path = match get_test_model_path() {
-            Some(path) => path,
-            None => {
-                eprintln!("Skipping test: no model found");
-                return;
-            }
+        let Some(model_path) = get_test_model_path() else {
+            eprintln!("Skipping test: no model found");
+            return;
         };
 
         let engine = TranscriptionEngine::new(&model_path, 4, 5, None).unwrap();
@@ -223,20 +245,16 @@ mod tests {
         let text = result.unwrap();
         assert!(
             text.is_empty() || text.len() < 50,
-            "Expected empty or minimal output for silence, got: '{}'",
-            text
+            "Expected empty or minimal output for silence, got: '{text}'"
         );
     }
 
     #[test]
-    #[ignore] // Requires actual model file
+    #[ignore = "requires actual model file"]
     fn test_transcribe_empty_audio() {
-        let model_path = match get_test_model_path() {
-            Some(path) => path,
-            None => {
-                eprintln!("Skipping test: no model found");
-                return;
-            }
+        let Some(model_path) = get_test_model_path() else {
+            eprintln!("Skipping test: no model found");
+            return;
         };
 
         let engine = TranscriptionEngine::new(&model_path, 4, 5, None).unwrap();
@@ -252,14 +270,16 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Requires actual model file
+    #[ignore = "requires actual model file"]
+    #[allow(
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss
+    )]
     fn test_transcribe_short_audio() {
-        let model_path = match get_test_model_path() {
-            Some(path) => path,
-            None => {
-                eprintln!("Skipping test: no model found");
-                return;
-            }
+        let Some(model_path) = get_test_model_path() else {
+            eprintln!("Skipping test: no model found");
+            return;
         };
 
         let engine = TranscriptionEngine::new(&model_path, 4, 5, None).unwrap();
@@ -285,14 +305,11 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Requires actual model file
+    #[ignore = "requires actual model file"]
     fn test_multiple_transcriptions() {
-        let model_path = match get_test_model_path() {
-            Some(path) => path,
-            None => {
-                eprintln!("Skipping test: no model found");
-                return;
-            }
+        let Some(model_path) = get_test_model_path() else {
+            eprintln!("Skipping test: no model found");
+            return;
         };
 
         let engine = TranscriptionEngine::new(&model_path, 4, 5, None).unwrap();
@@ -306,14 +323,11 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Requires actual model file
+    #[ignore = "requires actual model file"]
     fn test_transcribe_different_lengths() {
-        let model_path = match get_test_model_path() {
-            Some(path) => path,
-            None => {
-                eprintln!("Skipping test: no model found");
-                return;
-            }
+        let Some(model_path) = get_test_model_path() else {
+            eprintln!("Skipping test: no model found");
+            return;
         };
 
         let engine = TranscriptionEngine::new(&model_path, 4, 5, None).unwrap();
@@ -324,19 +338,16 @@ mod tests {
         for length in lengths {
             let audio: Vec<f32> = vec![0.0; length];
             let result = engine.transcribe(&audio);
-            assert!(result.is_ok(), "Failed to transcribe {} samples", length);
+            assert!(result.is_ok(), "Failed to transcribe {length} samples");
         }
     }
 
     #[test]
-    #[ignore] // Requires actual model file
+    #[ignore = "requires actual model file"]
     fn test_long_recording_30s() {
-        let model_path = match get_test_model_path() {
-            Some(path) => path,
-            None => {
-                eprintln!("Skipping test: no model found");
-                return;
-            }
+        let Some(model_path) = get_test_model_path() else {
+            eprintln!("Skipping test: no model found");
+            return;
         };
 
         let engine = TranscriptionEngine::new(&model_path, 4, 5, None).unwrap();
@@ -349,17 +360,14 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Requires actual model file
+    #[ignore = "requires actual model file"]
     fn test_optimization_params() {
         // NOTE: This test validates that different optimization parameters are accepted
         // without crashing, but does not verify that they actually affect behavior or
         // transcription quality. For performance validation, see manual tests in TESTING.md.
-        let model_path = match get_test_model_path() {
-            Some(path) => path,
-            None => {
-                eprintln!("Skipping test: no model found");
-                return;
-            }
+        let Some(model_path) = get_test_model_path() else {
+            eprintln!("Skipping test: no model found");
+            return;
         };
 
         // Test with different optimization params
@@ -376,21 +384,20 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Requires actual model file
+    #[ignore = "requires actual model file"]
+    #[allow(clippy::cast_precision_loss)]
     fn test_transcribe_noise() {
-        let model_path = match get_test_model_path() {
-            Some(path) => path,
-            None => {
-                eprintln!("Skipping test: no model found");
-                return;
-            }
+        use std::collections::hash_map::RandomState;
+        use std::hash::{BuildHasher, Hasher};
+
+        let Some(model_path) = get_test_model_path() else {
+            eprintln!("Skipping test: no model found");
+            return;
         };
 
         let engine = TranscriptionEngine::new(&model_path, 4, 5, None).unwrap();
 
         // 2 seconds of random noise (16kHz)
-        use std::collections::hash_map::RandomState;
-        use std::hash::{BuildHasher, Hasher};
         let hasher = RandomState::new().build_hasher();
         let seed = hasher.finish();
 
@@ -398,7 +405,7 @@ mod tests {
         let mut noise = Vec::with_capacity(32000);
         for _ in 0..32000 {
             // Simple LCG for deterministic noise
-            rng_state = rng_state.wrapping_mul(1103515245).wrapping_add(12345);
+            rng_state = rng_state.wrapping_mul(1_103_515_245).wrapping_add(12345);
             let sample = ((rng_state >> 16) as f32 / 32768.0) - 1.0;
             noise.push(sample * 0.1); // Low amplitude noise
         }
@@ -426,11 +433,9 @@ mod tests {
         let path = Path::new("/tmp/dummy.bin");
         let result = TranscriptionEngine::new(path, 0, 5, None);
         assert!(result.is_err());
-        match result {
-            Err(TranscriptionError::ModelLoad { source, .. }) => {
-                assert!(source.to_string().contains("threads must be > 0"));
-            }
-            _ => panic!("Expected ModelLoad error"),
+        assert!(matches!(result, Err(TranscriptionError::ModelLoad { .. })));
+        if let Err(TranscriptionError::ModelLoad { source, .. }) = result {
+            assert!(source.to_string().contains("threads must be > 0"));
         }
     }
 
@@ -439,25 +444,18 @@ mod tests {
         let path = Path::new("/tmp/dummy.bin");
         let result = TranscriptionEngine::new(path, 4, 0, None);
         assert!(result.is_err());
-        match result {
-            Err(TranscriptionError::ModelLoad { source, .. }) => {
-                assert!(source.to_string().contains("beam_size must be > 0"));
-            }
-            _ => panic!("Expected ModelLoad error"),
+        assert!(matches!(result, Err(TranscriptionError::ModelLoad { .. })));
+        if let Err(TranscriptionError::ModelLoad { source, .. }) = result {
+            assert!(source.to_string().contains("beam_size must be > 0"));
         }
     }
 
     #[test]
     fn test_new_with_valid_params() {
         let path = Path::new("/tmp/nonexistent_but_valid_params.bin");
-        let result = TranscriptionEngine::new(path, 4, 5, Some("en".to_string()));
+        let result = TranscriptionEngine::new(path, 4, 5, Some("en".to_owned()));
         // Will fail because file doesn't exist, but params are validated first
         assert!(result.is_err());
-        match result {
-            Err(TranscriptionError::ModelLoad { .. }) => {
-                // Expected - file doesn't exist
-            }
-            _ => panic!("Expected ModelLoad error"),
-        }
+        assert!(matches!(result, Err(TranscriptionError::ModelLoad { .. })));
     }
 }

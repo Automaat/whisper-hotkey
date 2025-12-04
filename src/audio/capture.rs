@@ -1,7 +1,10 @@
 use anyhow::{Context, Result};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use hound::{WavSpec, WavWriter};
-use ringbuf::{traits::*, HeapCons, HeapRb};
+use ringbuf::{
+    traits::{Consumer, Producer, Split},
+    HeapCons, HeapRb,
+};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -9,16 +12,26 @@ use tracing::{debug, info, warn};
 
 use crate::config::AudioConfig;
 
+/// Audio capture using CoreAudio/CPAL
 pub struct AudioCapture {
+    /// Audio stream (kept alive to prevent drop)
     #[allow(dead_code)] // Kept alive to prevent stream drop
     stream: Option<cpal::Stream>,
+    /// Ring buffer consumer for reading captured samples
     ring_buffer_consumer: HeapCons<f32>,
+    /// Recording state flag
     is_recording: Arc<AtomicBool>,
+    /// Device sample rate in Hz
     device_sample_rate: u32,
+    /// Number of audio channels
     device_channels: u16,
 }
 
 impl AudioCapture {
+    /// Creates a new audio capture instance
+    ///
+    /// # Errors
+    /// Returns error if default audio device is unavailable or stream creation fails
     pub fn new(_config: &AudioConfig) -> Result<Self> {
         info!("initializing audio capture");
 
@@ -28,7 +41,7 @@ impl AudioCapture {
             .default_input_device()
             .context("no input device available")?;
 
-        let device_name = device.name().unwrap_or_else(|_| "unknown".to_string());
+        let device_name = device.name().unwrap_or_else(|_| "unknown".to_owned());
         info!("using input device: {}", device_name);
 
         // Get device config (use device default, will resample to 16kHz later)
@@ -95,6 +108,11 @@ impl AudioCapture {
         })
     }
 
+    /// Starts recording audio
+    ///
+    /// # Errors
+    /// Returns error if ring buffer flush fails
+    #[allow(clippy::unnecessary_wraps)] // Consistent API, may add fallible ops later
     pub fn start_recording(&mut self) -> Result<()> {
         let _span = tracing::debug_span!("start_recording").entered();
         let start = std::time::Instant::now();
@@ -111,6 +129,11 @@ impl AudioCapture {
         Ok(())
     }
 
+    /// Stops recording and returns captured samples (16kHz mono f32)
+    ///
+    /// # Errors
+    /// Returns error if sample conversion fails
+    #[allow(clippy::unnecessary_wraps)] // Consistent API, may add fallible ops later
     pub fn stop_recording(&mut self) -> Result<Vec<f32>> {
         let _span = tracing::debug_span!("stop_recording").entered();
         let start_total = std::time::Instant::now();
@@ -134,7 +157,7 @@ impl AudioCapture {
         );
 
         // Convert to 16kHz mono
-        let samples_16khz_mono = self.convert_to_16khz_mono(&samples)?;
+        let samples_16khz_mono = self.convert_to_16khz_mono(&samples);
 
         let total_duration = start_total.elapsed();
         info!(
@@ -145,7 +168,7 @@ impl AudioCapture {
         Ok(samples_16khz_mono)
     }
 
-    fn convert_to_16khz_mono(&self, samples: &[f32]) -> Result<Vec<f32>> {
+    fn convert_to_16khz_mono(&self, samples: &[f32]) -> Vec<f32> {
         let _span = tracing::debug_span!("convert_to_16khz_mono").entered();
         let start_total = std::time::Instant::now();
         let target_sample_rate = 16000;
@@ -156,9 +179,17 @@ impl AudioCapture {
             samples.to_vec()
         } else {
             // Average channels (simple downmix)
+            let channels_f64 = f64::from(self.device_channels);
             samples
                 .chunks(self.device_channels as usize)
-                .map(|frame| frame.iter().sum::<f32>() / frame.len() as f32)
+                .map(|frame| {
+                    let sum_f64: f64 = frame.iter().map(|&s| f64::from(s)).sum();
+                    // f64 → f32: audio samples are stored as f32, precision sufficient
+                    #[allow(clippy::cast_possible_truncation)]
+                    {
+                        (sum_f64 / channels_f64) as f32
+                    }
+                })
                 .collect()
         };
         let downmix_duration = start_downmix.elapsed();
@@ -173,48 +204,82 @@ impl AudioCapture {
 
         // Resample if needed
         if self.device_sample_rate == target_sample_rate {
-            return Ok(mono_samples);
+            return mono_samples;
         }
 
         // Simple linear interpolation resampling
-        let start_resample = std::time::Instant::now();
-        let ratio = self.device_sample_rate as f64 / target_sample_rate as f64;
-        let output_len = (mono_samples.len() as f64 / ratio).ceil() as usize;
+        // Algorithm requires f64 ↔ usize conversions for fractional index calculations
+        #[allow(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            clippy::cast_precision_loss
+        )]
+        let resampled = {
+            let start_resample = std::time::Instant::now();
+            let ratio = f64::from(self.device_sample_rate) / f64::from(target_sample_rate);
 
-        let mut resampled = Vec::with_capacity(output_len);
-        for i in 0..output_len {
-            let src_idx = i as f64 * ratio;
-            let src_idx_floor = src_idx.floor() as usize;
-            let src_idx_ceil = (src_idx_floor + 1).min(mono_samples.len() - 1);
-            let fract = src_idx - src_idx_floor as f64;
-
-            let sample = if src_idx_floor < mono_samples.len() {
-                let s1 = mono_samples[src_idx_floor];
-                let s2 = mono_samples[src_idx_ceil];
-                s1 + (s2 - s1) * fract as f32
+            // Calculate output length - ratio is always positive for valid sample rates
+            let output_len_f64 = (mono_samples.len() as f64) / ratio;
+            let output_len = if output_len_f64.is_finite() && output_len_f64 >= 0.0 {
+                output_len_f64.ceil() as usize
             } else {
-                0.0
+                mono_samples.len()
             };
 
-            resampled.push(sample);
-        }
-        let resample_duration = start_resample.elapsed();
+            let mut resampled = Vec::with_capacity(output_len);
+            for i in 0..output_len {
+                // Calculate source index with linear interpolation
+                let src_idx_f64 = (i as f64) * ratio;
+
+                // Floor gives integer part, safe because src_idx >= 0
+                let src_idx_floor = if src_idx_f64 >= 0.0 && src_idx_f64 < (usize::MAX as f64) {
+                    src_idx_f64.floor() as usize
+                } else {
+                    0
+                };
+
+                let src_idx_ceil = (src_idx_floor + 1).min(mono_samples.len().saturating_sub(1));
+                let fract = src_idx_f64 - src_idx_f64.floor();
+
+                let sample = if src_idx_floor < mono_samples.len() {
+                    let s1 = f64::from(mono_samples[src_idx_floor]);
+                    let s2 = f64::from(mono_samples[src_idx_ceil]);
+                    // Use mul_add for better precision
+                    let interpolated = s1.mul_add(1.0 - fract, s2 * fract);
+                    interpolated as f32
+                } else {
+                    0.0_f32
+                };
+
+                resampled.push(sample);
+            }
+
+            let resample_duration = start_resample.elapsed();
+            info!(
+                device_rate = self.device_sample_rate,
+                target_rate = target_sample_rate,
+                input_samples = mono_samples.len(),
+                output_samples = resampled.len(),
+                resample_us = resample_duration.as_micros(),
+                "resampling completed"
+            );
+
+            resampled
+        };
 
         let total_duration = start_total.elapsed();
-        info!(
-            from_hz = self.device_sample_rate,
-            to_hz = target_sample_rate,
-            from_samples = mono_samples.len(),
-            to_samples = resampled.len(),
-            resample_us = resample_duration.as_micros(),
+        debug!(
             total_us = total_duration.as_micros(),
-            "resampling complete"
+            "audio conversion complete"
         );
 
-        Ok(resampled)
+        resampled
     }
 
     /// Save samples to WAV file for debugging
+    ///
+    /// # Errors
+    /// Returns error if directory creation or file write fails
     pub fn save_wav_debug(samples: &[f32], path: &Path) -> Result<()> {
         debug!("saving WAV debug file: {:?}", path);
 
@@ -250,6 +315,7 @@ impl AudioCapture {
 }
 
 #[cfg(test)]
+#[allow(clippy::float_cmp)] // Test assertions with known exact values
 mod tests {
     use super::*;
 
@@ -271,7 +337,7 @@ mod tests {
         // Stereo samples: [L1, R1, L2, R2, L3, R3]
         let stereo_samples = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
 
-        let result = capture.convert_to_16khz_mono(&stereo_samples).unwrap();
+        let result = capture.convert_to_16khz_mono(&stereo_samples);
 
         // Expected: [(1.0+2.0)/2, (3.0+4.0)/2, (5.0+6.0)/2]
         assert_eq!(result.len(), 3);
@@ -286,7 +352,7 @@ mod tests {
 
         let mono_samples = vec![1.0, 2.0, 3.0, 4.0, 5.0];
 
-        let result = capture.convert_to_16khz_mono(&mono_samples).unwrap();
+        let result = capture.convert_to_16khz_mono(&mono_samples);
 
         // Should pass through unchanged
         assert_eq!(result, mono_samples);
@@ -299,7 +365,7 @@ mod tests {
         // 48kHz -> 16kHz is 3:1 ratio
         let samples = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0];
 
-        let result = capture.convert_to_16khz_mono(&samples).unwrap();
+        let result = capture.convert_to_16khz_mono(&samples);
 
         // 9 samples at 48kHz -> 3 samples at 16kHz
         assert_eq!(result.len(), 3);
@@ -317,7 +383,7 @@ mod tests {
         // 8kHz -> 16kHz is 1:2 ratio
         let samples = vec![1.0, 2.0, 3.0, 4.0];
 
-        let result = capture.convert_to_16khz_mono(&samples).unwrap();
+        let result = capture.convert_to_16khz_mono(&samples);
 
         // 4 samples at 8kHz -> 8 samples at 16kHz
         assert_eq!(result.len(), 8);
@@ -329,6 +395,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::cast_precision_loss)]
     fn test_stereo_downsampling() {
         let capture = mock_audio_capture(44100, 2);
 
@@ -339,7 +406,7 @@ mod tests {
             samples.push((i + 1) as f32);
         }
 
-        let result = capture.convert_to_16khz_mono(&samples).unwrap();
+        let result = capture.convert_to_16khz_mono(&samples);
 
         // 44.1kHz -> 16kHz is ~2.76:1, 10 frames -> ~4 samples
         assert!(result.len() >= 3 && result.len() <= 5);
@@ -355,7 +422,7 @@ mod tests {
         let capture = mock_audio_capture(44100, 2);
 
         let empty: Vec<f32> = vec![];
-        let result = capture.convert_to_16khz_mono(&empty).unwrap();
+        let result = capture.convert_to_16khz_mono(&empty);
 
         assert_eq!(result.len(), 0);
     }
@@ -365,7 +432,7 @@ mod tests {
         let capture = mock_audio_capture(16000, 1);
 
         let samples = vec![42.0];
-        let result = capture.convert_to_16khz_mono(&samples).unwrap();
+        let result = capture.convert_to_16khz_mono(&samples);
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0], 42.0);
@@ -378,7 +445,7 @@ mod tests {
         // 4-channel samples: [C1, C2, C3, C4, C1, C2, C3, C4]
         let samples = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
 
-        let result = capture.convert_to_16khz_mono(&samples).unwrap();
+        let result = capture.convert_to_16khz_mono(&samples);
 
         // Expected: [(1+2+3+4)/4, (5+6+7+8)/4] = [2.5, 6.5]
         assert_eq!(result.len(), 2);
@@ -393,7 +460,7 @@ mod tests {
         // All samples in range [-1.0, 1.0]
         let samples = vec![-1.0, -0.5, 0.0, 0.5, 1.0];
 
-        let result = capture.convert_to_16khz_mono(&samples).unwrap();
+        let result = capture.convert_to_16khz_mono(&samples);
 
         // Linear interpolation should keep values in same range
         for &sample in &result {
@@ -475,35 +542,39 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::cast_precision_loss)]
     fn test_upsampling_maintains_sample_count_ratio() {
         let capture = mock_audio_capture(8000, 1);
 
         // 10 samples at 8kHz
         let samples = vec![0.0; 10];
 
-        let result = capture.convert_to_16khz_mono(&samples).unwrap();
+        let result = capture.convert_to_16khz_mono(&samples);
 
         // Should be approximately 20 samples at 16kHz (2x ratio)
-        assert!((result.len() as f32 - 20.0).abs() < 2.0);
+        let len_f32 = result.len() as f32;
+        assert!((len_f32 - 20.0).abs() < 2.0);
     }
 
     #[test]
+    #[allow(clippy::cast_precision_loss)]
     fn test_downsampling_maintains_sample_count_ratio() {
         let capture = mock_audio_capture(32000, 1);
 
         // 20 samples at 32kHz
         let samples = vec![0.0; 20];
 
-        let result = capture.convert_to_16khz_mono(&samples).unwrap();
+        let result = capture.convert_to_16khz_mono(&samples);
 
         // Should be approximately 10 samples at 16kHz (0.5x ratio)
-        assert!((result.len() as f32 - 10.0).abs() < 2.0);
+        let len_f32 = result.len() as f32;
+        assert!((len_f32 - 10.0).abs() < 2.0);
     }
 
     // Integration tests (require audio hardware, run with: cargo test -- --ignored)
 
     #[test]
-    #[ignore]
+    #[ignore = "requires audio hardware"]
     fn test_audio_capture_initialization() {
         let config = AudioConfig {
             buffer_size: 1024,
@@ -522,7 +593,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+    #[ignore = "requires audio hardware"]
     fn test_start_stop_recording() {
         let config = AudioConfig {
             buffer_size: 1024,
@@ -550,7 +621,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+    #[ignore = "requires audio hardware"]
     fn test_multiple_recording_cycles() {
         let config = AudioConfig {
             buffer_size: 1024,
@@ -568,7 +639,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+    #[ignore = "requires audio hardware"]
     fn test_ring_buffer_clearing() {
         let config = AudioConfig {
             buffer_size: 1024,

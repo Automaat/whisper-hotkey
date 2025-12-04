@@ -1,6 +1,10 @@
 use anyhow::{bail, Result};
 
 /// Check and request microphone permission
+///
+/// # Errors
+/// Currently never returns error (permission check deferred to first audio capture)
+#[allow(clippy::unnecessary_wraps)] // Consistent API with other permission checks
 pub fn check_microphone_permission() -> Result<()> {
     tracing::info!("checking microphone permission");
 
@@ -12,6 +16,9 @@ pub fn check_microphone_permission() -> Result<()> {
 }
 
 /// Check and request accessibility permission (for text insertion)
+///
+/// # Errors
+/// Returns error if accessibility permission is denied (macOS only)
 pub fn check_accessibility_permission() -> Result<()> {
     tracing::info!("checking accessibility permission");
 
@@ -33,6 +40,10 @@ pub fn check_accessibility_permission() -> Result<()> {
 }
 
 /// Check Input Monitoring permission (for global hotkeys)
+///
+/// # Errors
+/// Currently never returns error (warns user to check permission manually)
+#[allow(clippy::unnecessary_wraps)] // Consistent API with other permission checks
 pub fn check_input_monitoring_permission() -> Result<()> {
     tracing::info!("checking input monitoring permission");
 
@@ -43,16 +54,23 @@ pub fn check_input_monitoring_permission() -> Result<()> {
         tracing::warn!("input monitoring permission required for global hotkeys");
         tracing::warn!("if hotkeys don't work, enable in System Settings > Privacy & Security > Input Monitoring");
 
-        println!("⚠️  Input Monitoring permission required:");
-        println!("   If hotkeys don't work, go to:");
-        println!("   System Settings → Privacy & Security → Input Monitoring");
-        println!("   Add and enable your terminal app (Terminal/iTerm2/WezTerm/etc)\n");
+        // CLI user-facing output
+        #[allow(clippy::print_stdout)]
+        {
+            println!("⚠️  Input Monitoring permission required:");
+            println!("   If hotkeys don't work, go to:");
+            println!("   System Settings → Privacy & Security → Input Monitoring");
+            println!("   Add and enable your terminal app (Terminal/iTerm2/WezTerm/etc)\n");
+        }
     }
 
     Ok(())
 }
 
 /// Request all required permissions
+///
+/// # Errors
+/// Returns error if any permission check fails
 pub fn request_all_permissions() -> Result<()> {
     tracing::info!("requesting all permissions");
 
@@ -81,14 +99,14 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Requires accessibility permissions on macOS
+    #[ignore = "requires accessibility permissions on macOS"]
     fn test_check_accessibility_permission() {
         let result = check_accessibility_permission();
         assert!(result.is_ok());
     }
 
     #[test]
-    #[ignore] // Requires permissions on macOS
+    #[ignore = "requires permissions on macOS"]
     fn test_request_all_permissions() {
         let result = request_all_permissions();
         assert!(result.is_ok());

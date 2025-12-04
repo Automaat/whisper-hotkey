@@ -14,8 +14,11 @@ use crate::transcription::TranscriptionEngine;
 /// Application state machine
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AppState {
+    /// Waiting for hotkey press
     Idle,
+    /// Recording audio (hotkey held)
     Recording,
+    /// Transcribing and inserting text
     Processing,
 }
 
@@ -30,6 +33,9 @@ pub struct HotkeyManager {
 
 impl HotkeyManager {
     /// Create and register global hotkey from config
+    ///
+    /// # Errors
+    /// Returns error if hotkey manager creation fails, unknown modifiers/keys, or registration fails
     pub fn new(
         config: &HotkeyConfig,
         audio: Arc<Mutex<AudioCapture>>,
@@ -63,23 +69,39 @@ impl HotkeyManager {
 
     /// Handle hotkey press event
     pub fn on_press(&self) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         match *state {
             AppState::Idle => {
                 info!("🎤 Hotkey pressed - recording started");
                 *state = AppState::Recording;
+                drop(state);
 
                 // Start audio recording with error recovery
-                if let Err(e) = self.audio.lock().unwrap().start_recording() {
+                let recording_result = self
+                    .audio
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .start_recording();
+
+                if let Err(e) = recording_result {
                     warn!(error = %e, "❌ Failed to start recording");
+                    let mut state = self
+                        .state
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
                     *state = AppState::Idle;
                     // Continue running - this is a transient error, user can try again
                 }
             }
             AppState::Recording => {
+                drop(state);
                 debug!("hotkey pressed while recording (ignored)");
             }
             AppState::Processing => {
+                drop(state);
                 debug!("hotkey pressed while processing (ignored)");
             }
         }
@@ -87,16 +109,29 @@ impl HotkeyManager {
 
     /// Handle hotkey release event
     pub fn on_release(&self) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         match *state {
             AppState::Recording => {
                 info!("⏹️  Hotkey released - processing audio");
                 *state = AppState::Processing;
+                drop(state);
 
                 // Stop audio recording and get samples
-                match self.audio.lock().unwrap().stop_recording() {
+                let stop_result = self
+                    .audio
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .stop_recording();
+
+                match stop_result {
                     Ok(samples) => {
-                        let duration_secs = samples.len() as f32 / 16000.0;
+                        // Duration calculation: usize → f64 for sample_count / sample_rate
+                        // Safe: even 1hr audio = 57.6M samples, well within f64 precision
+                        #[allow(clippy::cast_precision_loss)]
+                        let duration_secs = samples.len() as f64 / 16000.0;
                         info!(
                             sample_count = samples.len(),
                             duration_secs = format!("{:.1}", duration_secs),
@@ -105,93 +140,104 @@ impl HotkeyManager {
                             samples.len()
                         );
 
-                        // Save WAV debug file with error recovery
-                        let timestamp = std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap()
-                            .as_secs();
-                        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-                        let debug_path = std::path::PathBuf::from(home)
-                            .join(".whisper-hotkey")
-                            .join("debug")
-                            .join(format!("recording_{}.wav", timestamp));
-
-                        if let Err(e) = AudioCapture::save_wav_debug(&samples, &debug_path) {
-                            warn!(error = %e, path = ?debug_path, "failed to save debug WAV");
-                        } else {
-                            debug!(path = ?debug_path, "saved debug WAV");
-                        }
-
-                        // Phase 5 & 6: Transcription + Text Insertion (background thread with error recovery)
-                        if let Some(engine) = &self.transcription {
-                            let engine = Arc::clone(engine);
-                            let state_arc = Arc::clone(&self.state);
-
-                            std::thread::spawn(move || {
-                                match engine.transcribe(&samples) {
-                                    Ok(text) => {
-                                        let text_preview: String = text.chars().take(50).collect();
-                                        info!(
-                                            text_len = text.len(),
-                                            text_preview = %text_preview,
-                                            "✨ Transcription: \"{}{}\"",
-                                            text_preview,
-                                            if text.len() > 50 { "..." } else { "" }
-                                        );
-
-                                        // Insert text at cursor, only if non-empty
-                                        if !text.is_empty() {
-                                            if !cgevent::insert_text_safe(&text) {
-                                                warn!(
-                                                    text_len = text.len(),
-                                                    text_preview = %text_preview,
-                                                    "❌ Text insertion failed - check permissions"
-                                                );
-                                            } else {
-                                                info!(
-                                                    text_len = text.len(),
-                                                    "✅ Inserted {} chars",
-                                                    text.len()
-                                                );
-                                            }
-                                        } else {
-                                            info!("🔇 No speech detected (silence or noise)");
-                                        }
-                                    }
-                                    Err(e) => {
-                                        warn!(
-                                            error = %e,
-                                            sample_count = samples.len(),
-                                            "❌ Transcription failed: {}",
-                                            e
-                                        );
-                                    }
-                                }
-
-                                // Set state to Idle after processing (always recover)
-                                let mut state = state_arc.lock().unwrap();
-                                *state = AppState::Idle;
-                                info!("✓ Ready for next recording");
-                            });
-                        } else {
-                            warn!("⚠️  Transcription engine not available");
-                            *state = AppState::Idle;
-                            info!("✓ Ready for next recording (transcription disabled)");
-                        }
+                        Self::save_debug_wav(&samples);
+                        self.process_transcription(samples);
                     }
                     Err(e) => {
                         warn!(error = %e, "❌ Failed to stop recording: {}", e);
+                        let mut state = self
+                            .state
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner);
                         *state = AppState::Idle;
                         // Continue running - this is a transient error, user can try again
                     }
                 }
             }
             AppState::Idle => {
+                drop(state);
                 debug!("hotkey released while idle (ignored)");
             }
             AppState::Processing => {
+                drop(state);
                 debug!("hotkey released while processing (ignored)");
             }
+        }
+    }
+
+    /// Save debug WAV file with error recovery
+    fn save_debug_wav(samples: &[f32]) {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_else(|_| std::time::Duration::from_secs(0))
+            .as_secs();
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_owned());
+        let debug_path = std::path::PathBuf::from(home)
+            .join(".whisper-hotkey")
+            .join("debug")
+            .join(format!("recording_{timestamp}.wav"));
+
+        if let Err(e) = AudioCapture::save_wav_debug(samples, &debug_path) {
+            warn!(error = %e, path = ?debug_path, "failed to save debug WAV");
+        } else {
+            debug!(path = ?debug_path, "saved debug WAV");
+        }
+    }
+
+    /// Process transcription and text insertion in background thread
+    fn process_transcription(&self, samples: Vec<f32>) {
+        if let Some(engine) = &self.transcription {
+            let engine = Arc::clone(engine);
+            let state_arc = Arc::clone(&self.state);
+
+            std::thread::spawn(move || {
+                match engine.transcribe(&samples) {
+                    Ok(text) => {
+                        let text_preview: String = text.chars().take(50).collect();
+                        info!(
+                            text_len = text.len(),
+                            text_preview = %text_preview,
+                            "✨ Transcription: \"{}{}\"",
+                            text_preview,
+                            if text.len() > 50 { "..." } else { "" }
+                        );
+
+                        // Insert text at cursor, only if non-empty
+                        if text.is_empty() {
+                            info!("🔇 No speech detected (silence or noise)");
+                        } else if cgevent::insert_text_safe(&text) {
+                            info!(text_len = text.len(), "✅ Inserted {} chars", text.len());
+                        } else {
+                            warn!(
+                                text_len = text.len(),
+                                text_preview = %text_preview,
+                                "❌ Text insertion failed - check permissions"
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        warn!(
+                            error = %e,
+                            sample_count = samples.len(),
+                            "❌ Transcription failed: {}",
+                            e
+                        );
+                    }
+                }
+
+                // Set state to Idle after processing (always recover)
+                *state_arc
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner) = AppState::Idle;
+                info!("✓ Ready for next recording");
+            });
+        } else {
+            warn!("⚠️  Transcription engine not available");
+            *self
+                .state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = AppState::Idle;
+            info!("✓ Ready for next recording (transcription disabled)");
         }
     }
 
@@ -215,7 +261,7 @@ impl HotkeyManager {
                 "Option" | "Alt" => result |= Modifiers::ALT,
                 "Command" | "Super" => result |= Modifiers::SUPER,
                 "Shift" => result |= Modifiers::SHIFT,
-                _ => return Err(anyhow!("unknown modifier: {}", modifier)),
+                _ => return Err(anyhow!("unknown modifier: {modifier}")),
             }
         }
         Ok(result)
@@ -249,7 +295,7 @@ impl HotkeyManager {
             "X" => Ok(Code::KeyX),
             "Y" => Ok(Code::KeyY),
             "Z" => Ok(Code::KeyZ),
-            _ => Err(anyhow!("unsupported key: {}", key)),
+            _ => Err(anyhow!("unsupported key: {key}")),
         }
     }
 }
@@ -268,60 +314,60 @@ mod tests {
 
     #[test]
     fn test_parse_modifiers_control() {
-        let result = HotkeyManager::parse_modifiers(&["Control".to_string()]).unwrap();
+        let result = HotkeyManager::parse_modifiers(&["Control".to_owned()]).unwrap();
         assert_eq!(result, Modifiers::CONTROL);
     }
 
     #[test]
     fn test_parse_modifiers_ctrl_alias() {
-        let result = HotkeyManager::parse_modifiers(&["Ctrl".to_string()]).unwrap();
+        let result = HotkeyManager::parse_modifiers(&["Ctrl".to_owned()]).unwrap();
         assert_eq!(result, Modifiers::CONTROL);
     }
 
     #[test]
     fn test_parse_modifiers_option() {
-        let result = HotkeyManager::parse_modifiers(&["Option".to_string()]).unwrap();
+        let result = HotkeyManager::parse_modifiers(&["Option".to_owned()]).unwrap();
         assert_eq!(result, Modifiers::ALT);
     }
 
     #[test]
     fn test_parse_modifiers_alt_alias() {
-        let result = HotkeyManager::parse_modifiers(&["Alt".to_string()]).unwrap();
+        let result = HotkeyManager::parse_modifiers(&["Alt".to_owned()]).unwrap();
         assert_eq!(result, Modifiers::ALT);
     }
 
     #[test]
     fn test_parse_modifiers_command() {
-        let result = HotkeyManager::parse_modifiers(&["Command".to_string()]).unwrap();
+        let result = HotkeyManager::parse_modifiers(&["Command".to_owned()]).unwrap();
         assert_eq!(result, Modifiers::SUPER);
     }
 
     #[test]
     fn test_parse_modifiers_super_alias() {
-        let result = HotkeyManager::parse_modifiers(&["Super".to_string()]).unwrap();
+        let result = HotkeyManager::parse_modifiers(&["Super".to_owned()]).unwrap();
         assert_eq!(result, Modifiers::SUPER);
     }
 
     #[test]
     fn test_parse_modifiers_shift() {
-        let result = HotkeyManager::parse_modifiers(&["Shift".to_string()]).unwrap();
+        let result = HotkeyManager::parse_modifiers(&["Shift".to_owned()]).unwrap();
         assert_eq!(result, Modifiers::SHIFT);
     }
 
     #[test]
     fn test_parse_modifiers_multiple() {
         let result =
-            HotkeyManager::parse_modifiers(&["Control".to_string(), "Option".to_string()]).unwrap();
+            HotkeyManager::parse_modifiers(&["Control".to_owned(), "Option".to_owned()]).unwrap();
         assert_eq!(result, Modifiers::CONTROL | Modifiers::ALT);
     }
 
     #[test]
     fn test_parse_modifiers_all() {
         let result = HotkeyManager::parse_modifiers(&[
-            "Control".to_string(),
-            "Option".to_string(),
-            "Command".to_string(),
-            "Shift".to_string(),
+            "Control".to_owned(),
+            "Option".to_owned(),
+            "Command".to_owned(),
+            "Shift".to_owned(),
         ])
         .unwrap();
         assert_eq!(
@@ -332,7 +378,7 @@ mod tests {
 
     #[test]
     fn test_parse_modifiers_invalid() {
-        let result = HotkeyManager::parse_modifiers(&["Invalid".to_string()]);
+        let result = HotkeyManager::parse_modifiers(&["Invalid".to_owned()]);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("unknown modifier"));
     }
@@ -421,12 +467,12 @@ mod tests {
     #[test]
     fn test_parse_modifiers_mixed_case() {
         // Test that only exact case works
-        let result = HotkeyManager::parse_modifiers(&["control".to_string()]);
+        let result = HotkeyManager::parse_modifiers(&["control".to_owned()]);
         assert!(result.is_err());
     }
 
     #[test]
-    #[ignore] // Requires audio hardware and global hotkey registration
+    #[ignore = "requires audio hardware and global hotkey registration"]
     fn test_hotkey_manager_creation() {
         // Would need to:
         // 1. Mock or create AudioCapture
@@ -435,7 +481,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Requires state machine with audio integration
+    #[ignore = "requires state machine with audio integration"]
     fn test_state_transitions_on_press_release() {
         // Would need to:
         // 1. Mock AudioCapture
