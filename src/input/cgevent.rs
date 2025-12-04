@@ -23,40 +23,79 @@ pub enum TextInsertionError {
 ///
 /// # Errors
 /// Returns error if `CGEvent` creation fails or text is empty.
-/// Logs error to telemetry but does NOT fall back to clipboard.
 ///
 /// # Implementation
 /// Uses `CGEventKeyboardSetUnicodeString` to simulate keyboard input.
-/// Requires Accessibility permissions (same as global hotkey).
+/// Requires Input Monitoring permission (verified at app startup).
 ///
 /// # Known Limitations
-/// - Some apps may block `CGEvent` insertion (e.g., Terminal with secure input)
-/// - No clipboard fallback (by design - errors are logged)
+/// - `event.post()` does not return errors - if insertion fails silently,
+///   check System Settings → Privacy & Security → Input Monitoring
+/// - Some apps block `CGEvent` insertion (e.g., Terminal with secure input)
+/// - No clipboard fallback (by design)
+///
+/// # Permissions
+/// Input Monitoring permission is verified at startup via
+/// `check_input_monitoring_permission()`. If that check passed, this function
+/// should work. If insertions fail at runtime, the user may have revoked permission
+/// or the target app has secure input enabled.
 pub fn insert_text(text: &str) -> Result<(), TextInsertionError> {
     if text.is_empty() {
+        error!("attempted to insert empty text");
         return Err(TextInsertionError::EmptyText);
     }
 
-    debug!(text_len = text.len(), "inserting text at cursor");
+    let preview = if text.len() > 50 {
+        format!("{}...", &text[..47])
+    } else {
+        text.to_owned()
+    };
 
-    // Create event source
+    info!(
+        text_len = text.len(),
+        text_preview = %preview,
+        "starting text insertion"
+    );
+
+    // Create event source (requires Input Monitoring permission)
+    debug!("creating CGEventSource with HIDSystemState");
     let source = CGEventSource::new(CGEventSourceStateID::HIDSystemState)
-        .map_err(|()| TextInsertionError::EventSourceCreation)?;
+        .map_err(|()| {
+            error!("FAILED: CGEventSource creation - Input Monitoring permission may have been revoked or blocked");
+            error!("Check System Settings → Privacy & Security → Input Monitoring");
+            TextInsertionError::EventSourceCreation
+        })?;
+    debug!("✓ CGEventSource created successfully");
 
     // Create a keyboard event with dummy keycode (will be overridden by string)
+    debug!("creating keyboard CGEvent");
     let event = CGEvent::new_keyboard_event(source, 0, true)
-        .map_err(|()| TextInsertionError::EventCreation)?;
+        .map_err(|()| {
+            error!("FAILED: CGEvent creation - unexpected error after permission check passed");
+            TextInsertionError::EventCreation
+        })?;
+    debug!("✓ keyboard CGEvent created successfully");
 
     // Set the text to insert
     // Note: set_string_from_utf16_unchecked is not marked unsafe in core-graphics API
     // UTF-16 conversion from Rust &str is always valid (no unpaired surrogates)
+    debug!("encoding text to UTF-16 for insertion");
     let utf16: Vec<u16> = text.encode_utf16().collect();
     event.set_string_from_utf16_unchecked(&utf16);
+    debug!(utf16_len = utf16.len(), "✓ text set on CGEvent");
 
     // Post the event to the HID system
+    // NOTE: post() does not return a result. If this fails (e.g., target app has
+    // secure input enabled), the failure is silent. Permission was verified at startup.
+    debug!("posting CGEvent to HID system");
     event.post(CGEventTapLocation::HID);
 
-    info!(text_len = text.len(), "text inserted successfully");
+    info!(
+        text_len = text.len(),
+        text_preview = %preview,
+        "✓ CGEvent posted to HID - text should appear at cursor"
+    );
+    info!("If text did NOT appear: target app may have secure input enabled or revoked permission");
 
     Ok(())
 }

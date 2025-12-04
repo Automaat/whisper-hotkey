@@ -39,29 +39,36 @@ pub fn check_accessibility_permission() -> Result<()> {
     Ok(())
 }
 
-/// Check Input Monitoring permission (for global hotkeys)
+/// Check Input Monitoring permission (for global hotkeys and text insertion)
 ///
 /// # Errors
-/// Currently never returns error (warns user to check permission manually)
-#[allow(clippy::unnecessary_wraps)] // Consistent API with other permission checks
+/// Returns error if Input Monitoring permission is denied (macOS only)
 pub fn check_input_monitoring_permission() -> Result<()> {
     tracing::info!("checking input monitoring permission");
 
     #[cfg(target_os = "macos")]
     {
-        // macOS requires Input Monitoring permission for global hotkeys
-        // There's no direct API to check this, so we warn the user
-        tracing::warn!("input monitoring permission required for global hotkeys");
-        tracing::warn!("if hotkeys don't work, enable in System Settings > Privacy & Security > Input Monitoring");
+        use core_graphics::event::CGEvent;
+        use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
 
-        // CLI user-facing output
-        #[allow(clippy::print_stdout)]
-        {
-            println!("⚠️  Input Monitoring permission required:");
-            println!("   If hotkeys don't work, go to:");
-            println!("   System Settings → Privacy & Security → Input Monitoring");
-            println!("   Add and enable your terminal app (Terminal/iTerm2/WezTerm/etc)\n");
-        }
+        // Try to create a CGEventSource with HIDSystemState - requires Input Monitoring
+        let source = CGEventSource::new(CGEventSourceStateID::HIDSystemState).map_err(|()| {
+            anyhow::anyhow!(
+                "Input Monitoring permission denied\n\n\
+                Enable in: System Settings → Privacy & Security → Input Monitoring\n\
+                Add and enable this app, then restart.\n"
+            )
+        })?;
+
+        // Verify we can actually create events (tests full permission chain)
+        CGEvent::new_keyboard_event(source, 0, true).map_err(|()| {
+            anyhow::anyhow!(
+                "Failed to create CGEvent - Input Monitoring may be restricted\n\n\
+                Enable in: System Settings → Privacy & Security → Input Monitoring\n"
+            )
+        })?;
+
+        tracing::info!("input monitoring permission granted");
     }
 
     Ok(())
@@ -93,6 +100,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires Input Monitoring permission on macOS"]
     fn test_check_input_monitoring_permission() {
         let result = check_input_monitoring_permission();
         assert!(result.is_ok());
