@@ -12,11 +12,34 @@ use tracing::{debug, info, warn};
 
 use crate::config::AudioConfig;
 
+/// Trait for controlling audio stream lifecycle
+trait StreamControl {
+    /// Resume audio stream (activate microphone)
+    fn play(&self) -> Result<()>;
+    /// Pause audio stream (deactivate microphone)
+    fn pause(&self) -> Result<()>;
+}
+
+/// CPAL stream wrapper implementing `StreamControl`
+struct CpalStreamControl {
+    stream: cpal::Stream,
+}
+
+impl StreamControl for CpalStreamControl {
+    fn play(&self) -> Result<()> {
+        self.stream.play().context("failed to resume audio stream")
+    }
+
+    fn pause(&self) -> Result<()> {
+        self.stream.pause().context("failed to pause audio stream")
+    }
+}
+
 /// Audio capture using CoreAudio/CPAL
 pub struct AudioCapture {
-    /// Audio stream (kept alive to prevent drop)
+    /// Stream controller (kept alive to prevent stream drop)
     #[allow(dead_code)] // Kept alive to prevent stream drop
-    stream: Option<cpal::Stream>,
+    stream_control: Option<Box<dyn StreamControl>>,
     /// Ring buffer consumer for reading captured samples
     ring_buffer_consumer: HeapCons<f32>,
     /// Recording state flag
@@ -95,13 +118,16 @@ impl AudioCapture {
             )
             .context("failed to build input stream")?;
 
+        // Wrap stream in controller
+        let stream_control = CpalStreamControl { stream };
+
         // Start the stream and immediately pause it (mic inactive until hotkey pressed)
-        stream.play().context("failed to start audio stream")?;
-        stream.pause().context("failed to pause audio stream")?; // LCOV_EXCL_LINE
+        stream_control.play()?;
+        stream_control.pause()?;
         info!("audio stream initialized (paused)");
 
         Ok(Self {
-            stream: Some(stream),
+            stream_control: Some(Box::new(stream_control)),
             ring_buffer_consumer,
             is_recording,
             device_sample_rate,
@@ -126,8 +152,8 @@ impl AudioCapture {
         self.is_recording.store(true, Ordering::Relaxed);
 
         // Resume audio stream (activate microphone)
-        if let Some(stream) = &self.stream {
-            stream.play().context("failed to resume audio stream")?; // LCOV_EXCL_LINE
+        if let Some(stream_control) = &self.stream_control {
+            stream_control.play()?;
         }
 
         let duration = start.elapsed();
@@ -149,8 +175,8 @@ impl AudioCapture {
         self.is_recording.store(false, Ordering::Relaxed);
 
         // Pause audio stream (deactivate microphone)
-        if let Some(stream) = &self.stream {
-            stream.pause().context("failed to pause audio stream")?; // LCOV_EXCL_LINE
+        if let Some(stream_control) = &self.stream_control {
+            stream_control.pause()?;
         }
 
         // Drain ring buffer into Vec
@@ -330,10 +356,28 @@ impl AudioCapture {
 mod tests {
     use super::*;
 
+    // Mock StreamControl for testing
+    struct MockStreamControl {
+        play_count: Arc<AtomicBool>,
+        pause_count: Arc<AtomicBool>,
+    }
+
+    impl StreamControl for MockStreamControl {
+        fn play(&self) -> Result<()> {
+            self.play_count.store(true, Ordering::Relaxed);
+            Ok(())
+        }
+
+        fn pause(&self) -> Result<()> {
+            self.pause_count.store(true, Ordering::Relaxed);
+            Ok(())
+        }
+    }
+
     // Mock AudioCapture for testing conversion logic
     fn mock_audio_capture(sample_rate: u32, channels: u16) -> AudioCapture {
         AudioCapture {
-            stream: None,
+            stream_control: None,
             ring_buffer_consumer: HeapRb::<f32>::new(1024).split().1,
             is_recording: Arc::new(AtomicBool::new(false)),
             device_sample_rate: sample_rate,
@@ -673,6 +717,38 @@ mod tests {
         // (actual lengths depend on audio input)
         // Just verify no errors during recording cycles
         let _ = (samples1, samples2);
+    }
+
+    #[test]
+    fn test_stream_control_pause_resume() {
+        // Create mock stream control to verify play/pause calls
+        let play_called = Arc::new(AtomicBool::new(false));
+        let pause_called = Arc::new(AtomicBool::new(false));
+        let mock_stream = MockStreamControl {
+            play_count: Arc::clone(&play_called),
+            pause_count: Arc::clone(&pause_called),
+        };
+
+        let ring_buffer = HeapRb::<f32>::new(1024);
+        let (_, consumer) = ring_buffer.split();
+
+        let mut capture = AudioCapture {
+            stream_control: Some(Box::new(mock_stream)),
+            ring_buffer_consumer: consumer,
+            is_recording: Arc::new(AtomicBool::new(false)),
+            device_sample_rate: 16000,
+            device_channels: 1,
+        };
+
+        // Start recording should call play()
+        capture.start_recording().unwrap();
+        assert!(play_called.load(Ordering::Relaxed));
+        assert!(capture.is_recording.load(Ordering::Relaxed));
+
+        // Stop recording should call pause()
+        let _ = capture.stop_recording().unwrap();
+        assert!(pause_called.load(Ordering::Relaxed));
+        assert!(!capture.is_recording.load(Ordering::Relaxed));
     }
 
     #[test]
