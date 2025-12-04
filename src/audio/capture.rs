@@ -171,13 +171,13 @@ impl AudioCapture {
         let start_total = std::time::Instant::now();
         debug!("stopping recording");
 
-        // Clear recording flag
-        self.is_recording.store(false, Ordering::Relaxed);
-
-        // Pause audio stream (deactivate microphone)
+        // Pause audio stream first (deactivate microphone)
         if let Some(stream_control) = &self.stream_control {
             stream_control.pause()?;
         }
+
+        // Clear recording flag after stream is paused
+        self.is_recording.store(false, Ordering::Relaxed);
 
         // Drain ring buffer into Vec
         let start_drain = std::time::Instant::now();

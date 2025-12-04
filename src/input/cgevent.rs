@@ -76,8 +76,10 @@ pub fn insert_text(text: &str) -> Result<(), TextInsertionError> {
     debug!("✓ keyboard CGEvent created successfully");
 
     // Set the text to insert
-    // Note: set_string_from_utf16_unchecked is not marked unsafe in core-graphics API
-    // UTF-16 conversion from Rust &str is always valid (no unpaired surrogates)
+    // Note: set_string_from_utf16_unchecked is not marked unsafe in the core-graphics crate.
+    // SAFETY: The UTF-16 slice passed to set_string_from_utf16_unchecked must be valid UTF-16
+    // (no unpaired surrogates). This is guaranteed because Rust's encode_utf16() on &str
+    // always produces valid UTF-16.
     debug!("encoding text to UTF-16 for insertion");
     let utf16: Vec<u16> = text.encode_utf16().collect();
     event.set_string_from_utf16_unchecked(&utf16);
@@ -94,7 +96,9 @@ pub fn insert_text(text: &str) -> Result<(), TextInsertionError> {
         text_preview = %preview,
         "✓ CGEvent posted to HID - text should appear at cursor"
     );
-    info!("If text did NOT appear: target app may have secure input enabled or revoked permission");
+    debug!(
+        "If text did NOT appear: target app may have secure input enabled or revoked permission"
+    );
 
     Ok(())
 }
