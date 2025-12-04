@@ -326,11 +326,8 @@ async fn main() -> Result<()> {
                         }
                     }
                 }
-                tray::TrayCommand::Quit => {
-                    tracing::info!("quit requested from menubar");
-                    println!("\nShutting down from menubar...");
-                    break;
-                }
+                // Note: Quit case removed - PredefinedMenuItem::quit() calls native
+                // macOS terminate: selector which bypasses event system entirely
             }
         }
 

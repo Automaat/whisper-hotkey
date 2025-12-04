@@ -18,7 +18,7 @@ pub enum TrayCommand {
     TogglePreload,
     ToggleTelemetry,
     OpenConfigFile,
-    Quit,
+    // Note: Quit removed - PredefinedMenuItem::quit() bypasses event system entirely
 }
 
 pub struct TrayManager {
@@ -389,7 +389,8 @@ impl TrayManager {
             "Preload Model" => Some(TrayCommand::TogglePreload),
             "Telemetry" => Some(TrayCommand::ToggleTelemetry),
             "Open Config File" => Some(TrayCommand::OpenConfigFile),
-            "Quit" => Some(TrayCommand::Quit),
+            // Note: "Quit" not handled here - PredefinedMenuItem::quit() uses native
+            // macOS terminate: selector which bypasses event system entirely
 
             _ => None,
         }
@@ -488,8 +489,7 @@ mod tests {
         let cmd = TrayManager::parse_menu_event("Open Config File");
         assert!(matches!(cmd, Some(TrayCommand::OpenConfigFile)));
 
-        let cmd = TrayManager::parse_menu_event("Quit");
-        assert!(matches!(cmd, Some(TrayCommand::Quit)));
+        // Note: Quit not tested - PredefinedMenuItem::quit() bypasses event system
     }
 
     #[test]
@@ -516,9 +516,9 @@ mod tests {
 
     #[test]
     fn test_tray_command_debug() {
-        let cmd = TrayCommand::Quit;
+        let cmd = TrayCommand::OpenConfigFile;
         let debug_str = format!("{cmd:?}");
-        assert!(debug_str.contains("Quit"));
+        assert!(debug_str.contains("OpenConfigFile"));
     }
 
     #[test]
