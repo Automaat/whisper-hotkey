@@ -55,14 +55,22 @@ async fn main() -> Result<()> {
     println!("✓ Telemetry initialized");
 
     // Cleanup old recordings
-    match recording_cleanup::cleanup_old_recordings(&config.recording) {
-        Ok(deleted) => {
+    match tokio::task::spawn_blocking({
+        let recording_config = config.recording.clone();
+        move || recording_cleanup::cleanup_old_recordings(&recording_config)
+    })
+    .await
+    {
+        Ok(Ok(deleted)) => {
             if deleted > 0 {
                 tracing::debug!("startup cleanup: deleted {} old recordings", deleted);
             }
         }
-        Err(e) => {
+        Ok(Err(e)) => {
             tracing::warn!("failed to cleanup old recordings: {}", e);
+        }
+        Err(e) => {
+            tracing::warn!("startup cleanup task panicked: {}", e);
         }
     }
 
@@ -185,14 +193,22 @@ async fn main() -> Result<()> {
             loop {
                 interval.tick().await;
                 tracing::debug!("running periodic recording cleanup");
-                match recording_cleanup::cleanup_old_recordings(&recording_config) {
-                    Ok(deleted) => {
+                match tokio::task::spawn_blocking({
+                    let recording_config = recording_config.clone();
+                    move || recording_cleanup::cleanup_old_recordings(&recording_config)
+                })
+                .await
+                {
+                    Ok(Ok(deleted)) => {
                         if deleted > 0 {
                             tracing::debug!("periodic cleanup: deleted {} old recordings", deleted);
                         }
                     }
-                    Err(e) => {
+                    Ok(Err(e)) => {
                         tracing::warn!("periodic cleanup failed: {}", e);
+                    }
+                    Err(e) => {
+                        tracing::warn!("cleanup task panicked: {}", e);
                     }
                 }
             }

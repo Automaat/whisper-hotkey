@@ -1,5 +1,6 @@
 use crate::config::RecordingConfig;
 use anyhow::{Context, Result};
+use std::collections::HashSet;
 use std::fs;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -10,7 +11,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// Returns the number of files deleted.
 ///
 /// # Errors
-/// Returns error if directory listing fails or deletion fails
+/// Returns error if directory listing fails. Individual file deletion failures are logged but don't stop cleanup.
 pub fn cleanup_old_recordings(config: &RecordingConfig) -> Result<usize> {
     let debug_dir = get_debug_dir()?;
 
@@ -55,7 +56,7 @@ pub fn cleanup_old_recordings(config: &RecordingConfig) -> Result<usize> {
     // Sort by timestamp (newest first)
     recordings.sort_by(|a, b| b.1.cmp(&a.1));
 
-    let mut to_delete = Vec::new();
+    let mut to_delete = HashSet::new();
 
     // Apply age-based retention
     if config.retention_days > 0 {
@@ -67,7 +68,7 @@ pub fn cleanup_old_recordings(config: &RecordingConfig) -> Result<usize> {
 
         for (path, timestamp) in &recordings {
             if now.saturating_sub(*timestamp) > retention_secs {
-                to_delete.push(path.clone());
+                to_delete.insert(path.clone());
             }
         }
     }
@@ -75,9 +76,7 @@ pub fn cleanup_old_recordings(config: &RecordingConfig) -> Result<usize> {
     // Apply count-based retention
     if config.max_count > 0 && recordings.len() > config.max_count {
         for (path, _) in recordings.iter().skip(config.max_count) {
-            if !to_delete.contains(path) {
-                to_delete.push(path.clone());
-            }
+            to_delete.insert(path.clone());
         }
     }
 
