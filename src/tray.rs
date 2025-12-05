@@ -828,7 +828,9 @@ mod tests {
     }
 
     fn create_menu_test_config() -> Config {
-        use crate::config::{AudioConfig, HotkeyConfig, ModelConfig, TelemetryConfig};
+        use crate::config::{
+            AudioConfig, HotkeyConfig, ModelConfig, RecordingConfig, TelemetryConfig,
+        };
         Config {
             hotkey: HotkeyConfig {
                 modifiers: vec!["Command".to_owned(), "Shift".to_owned()],
@@ -850,6 +852,7 @@ mod tests {
                 enabled: false,
                 log_path: "/tmp/test.log".to_owned(),
             },
+            recording: RecordingConfig::default(),
         }
     }
 
