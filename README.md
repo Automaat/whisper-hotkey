@@ -88,7 +88,7 @@ mise exec -- cargo run --release
 ```
 
 **First run:**
-- Creates config: `~/.whisper-hotkey.toml`
+- Creates config: `~/.whisper-hotkey/config.toml`
 - Prompts for **Microphone** permission (System Settings → Privacy & Security)
 - Prompts for **Accessibility** permission (for hotkey + text insertion)
 - Downloads Whisper model: `~/.whisper-hotkey/models/ggml-small.bin` (~466MB)
@@ -115,7 +115,7 @@ mise exec -- cargo run --release
 
 **Expected output:**
 ```
-✓ Config loaded from ~/.whisper-hotkey.toml
+✓ Config loaded from ~/.whisper-hotkey/config.toml
 ✓ Telemetry initialized
 ✓ Permissions OK
 ✓ Model found at /Users/you/.whisper-hotkey/models/ggml-small.bin
@@ -134,7 +134,7 @@ Press Ctrl+C to exit.
 
 ## Configuration
 
-Edit `~/.whisper-hotkey.toml`:
+Edit `~/.whisper-hotkey/config.toml`:
 
 ```toml
 [hotkey]
