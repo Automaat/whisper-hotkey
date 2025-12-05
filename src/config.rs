@@ -173,6 +173,12 @@ log_path = "~/.whisper-hotkey/crash.log"
     /// Returns error if TOML serialization fails or file write fails
     pub fn save(&self) -> Result<()> {
         let config_path = Self::config_path()?;
+
+        // Ensure parent directory exists
+        if let Some(parent) = config_path.parent() {
+            fs::create_dir_all(parent).context("failed to create config directory")?;
+        }
+
         let contents =
             toml::to_string_pretty(self).context("failed to serialize config to TOML")?;
         fs::write(&config_path, contents).context("failed to write config file")?;
@@ -206,6 +212,10 @@ log_path = "~/.whisper-hotkey/crash.log"
 mod tests {
     use super::*;
     use std::env;
+    use std::sync::Mutex;
+
+    // Shared mutex for all tests that modify HOME
+    static HOME_TEST_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn test_expand_path_with_tilde() {
@@ -563,12 +573,8 @@ log_path = "/test/log.txt"
 
     #[test]
     fn test_load_with_migration() {
-        use std::env;
-        use std::sync::Mutex;
-
-        // Use a mutex to prevent parallel test execution from interfering with HOME
-        static TEST_LOCK: Mutex<()> = Mutex::new(());
-        let _guard = TEST_LOCK.lock().unwrap();
+        // Use shared mutex to prevent parallel test execution from interfering with HOME
+        let _guard = HOME_TEST_LOCK.lock().unwrap();
 
         // Create unique temp directory
         let temp_base = env::temp_dir();
@@ -627,6 +633,173 @@ log_path = "/tmp/test.log"
 
         // Cleanup
         let _ = fs::remove_dir_all(&test_home);
+    }
+
+    #[test]
+    fn test_load_creates_default_when_no_config_exists() {
+        let _guard = HOME_TEST_LOCK.lock().unwrap();
+
+        let temp_base = env::temp_dir();
+        let test_home = temp_base.join(format!(
+            "whisper_test_no_config_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+        ));
+        fs::create_dir_all(&test_home).unwrap();
+
+        let original_home = env::var("HOME").ok();
+        env::set_var("HOME", test_home.to_str().unwrap());
+
+        // No config exists - should create default
+        let config = Config::load().unwrap();
+
+        // Verify new config was created at correct path
+        let config_path = test_home.join(".whisper-hotkey/config.toml");
+        assert!(config_path.exists());
+
+        // Verify default values
+        assert_eq!(config.hotkey.modifiers, vec!["Control", "Option"]);
+        assert_eq!(config.hotkey.key, "Z");
+        assert_eq!(config.audio.buffer_size, 1024);
+        assert_eq!(config.audio.sample_rate, 16000);
+        assert_eq!(config.model.name, "small");
+        assert!(config.telemetry.enabled);
+
+        // Restore HOME
+        if let Some(home) = original_home {
+            env::set_var("HOME", home);
+        } else {
+            env::remove_var("HOME");
+        }
+
+        let _ = fs::remove_dir_all(&test_home);
+    }
+
+    #[test]
+    fn test_load_when_new_config_already_exists() {
+        let _guard = HOME_TEST_LOCK.lock().unwrap();
+
+        let temp_base = env::temp_dir();
+        let test_home = temp_base.join(format!(
+            "whisper_test_existing_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+        ));
+        fs::create_dir_all(&test_home).unwrap();
+
+        let original_home = env::var("HOME").ok();
+        env::set_var("HOME", test_home.to_str().unwrap());
+
+        // Create new config at correct path
+        let new_config_path = test_home.join(".whisper-hotkey/config.toml");
+        fs::create_dir_all(new_config_path.parent().unwrap()).unwrap();
+        let existing_config = r#"[hotkey]
+modifiers = ["Control", "Shift"]
+key = "X"
+
+[audio]
+buffer_size = 4096
+sample_rate = 16000
+
+[model]
+name = "large"
+path = "/custom/path.bin"
+preload = false
+
+[telemetry]
+enabled = false
+log_path = "/custom/log.txt"
+"#;
+        fs::write(&new_config_path, existing_config).unwrap();
+
+        // Create old config too - should not migrate since new exists
+        let old_config_path = test_home.join(".whisper-hotkey.toml");
+        fs::write(&old_config_path, "ignored").unwrap();
+
+        // Load - should use new config, ignore old
+        let config = Config::load().unwrap();
+
+        // Verify loaded from new config, not defaults
+        assert_eq!(config.hotkey.key, "X");
+        assert_eq!(config.audio.buffer_size, 4096);
+        assert_eq!(config.model.name, "large");
+        assert!(!config.telemetry.enabled);
+
+        // Old config should still exist (not migrated)
+        assert!(old_config_path.exists());
+
+        // Restore HOME
+        if let Some(home) = original_home {
+            env::set_var("HOME", home);
+        } else {
+            env::remove_var("HOME");
+        }
+
+        let _ = fs::remove_dir_all(&test_home);
+    }
+
+    #[test]
+    fn test_save_creates_config_file() {
+        let _guard = HOME_TEST_LOCK.lock().unwrap();
+
+        let temp_base = env::temp_dir();
+        let test_dir = temp_base.join(format!(
+            "whisper_test_save_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+        ));
+        fs::create_dir_all(&test_dir).unwrap();
+
+        let original_home = env::var("HOME").ok();
+        env::set_var("HOME", test_dir.to_str().unwrap());
+
+        let config = Config {
+            hotkey: HotkeyConfig {
+                modifiers: vec!["Command".to_owned()],
+                key: "T".to_owned(),
+            },
+            audio: AudioConfig {
+                buffer_size: 2048,
+                sample_rate: 16000,
+            },
+            model: ModelConfig {
+                name: "base".to_owned(),
+                path: "/test/base.bin".to_owned(),
+                preload: true,
+                threads: 4,
+                beam_size: 5,
+                language: Some("en".to_owned()),
+            },
+            telemetry: TelemetryConfig {
+                enabled: true,
+                log_path: "/test/log.txt".to_owned(),
+            },
+        };
+
+        config.save().unwrap();
+
+        let config_path = test_dir.join(".whisper-hotkey/config.toml");
+        assert!(config_path.exists());
+
+        let contents = fs::read_to_string(&config_path).unwrap();
+        let loaded: Config = toml::from_str(&contents).unwrap();
+        assert_eq!(loaded.hotkey.key, "T");
+        assert_eq!(loaded.audio.buffer_size, 2048);
+
+        // Restore HOME
+        if let Some(home) = original_home {
+            env::set_var("HOME", home);
+        } else {
+            env::remove_var("HOME");
+        }
+
+        let _ = fs::remove_dir_all(&test_dir);
     }
 
     #[test]
