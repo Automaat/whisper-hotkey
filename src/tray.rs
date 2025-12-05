@@ -36,18 +36,7 @@ impl TrayManager {
         cached_icons.insert(AppState::Recording, Self::load_icon(AppState::Recording)?);
         cached_icons.insert(AppState::Processing, Self::load_icon(AppState::Processing)?);
 
-        let icon = cached_icons
-            .get(&AppState::Idle)
-            .context("idle icon not in cache")?
-            .clone();
-        let menu = Self::build_menu(config, Some(AppState::Idle))?;
-
-        let tray = TrayIconBuilder::new()
-            .with_menu(Box::new(menu))
-            .with_tooltip("Whisper Hotkey")
-            .with_icon(icon)
-            .build()
-            .context("failed to build tray icon")?;
+        let tray = Self::build_tray(config, AppState::Idle, &cached_icons)?;
 
         Ok(Self {
             tray,
@@ -55,6 +44,25 @@ impl TrayManager {
             current_icon_state: AppState::Idle,
             cached_icons,
         })
+    }
+
+    fn build_tray(
+        config: &Config,
+        app_state: AppState,
+        cached_icons: &HashMap<AppState, Icon>,
+    ) -> Result<tray_icon::TrayIcon> {
+        let icon = cached_icons
+            .get(&app_state)
+            .with_context(|| format!("icon for state {:?} not in cache", app_state))?
+            .clone();
+        let menu = Self::build_menu(config, Some(app_state))?;
+
+        TrayIconBuilder::new()
+            .with_menu(Box::new(menu))
+            .with_tooltip("Whisper Hotkey")
+            .with_icon(icon)
+            .build()
+            .context("failed to build tray icon")
     }
 
     fn load_icon(state: AppState) -> Result<Icon> {
@@ -114,20 +122,12 @@ impl TrayManager {
                 new_state
             );
 
-            // Rebuild menu with new state (reliable feedback)
-            let new_menu = Self::build_menu(config, Some(new_state))?;
-            self.tray.set_menu(Some(Box::new(new_menu)));
-
-            // Try icon update (has known macOS bug but keep trying) - use cached icon
-            let icon = self
-                .cached_icons
-                .get(&new_state)
-                .context("icon not in cache")?
-                .clone();
-            self.tray.set_icon(Some(icon)).ok();
+            // Rebuild entire tray with new state (workaround for macOS set_icon() bug)
+            let new_tray = Self::build_tray(config, new_state, &self.cached_icons)?;
+            self.tray = new_tray;
 
             self.current_icon_state = new_state;
-            tracing::info!("✓ tray menu updated with state: {:?}", new_state);
+            tracing::info!("✓ tray icon rebuilt with state: {:?}", new_state);
         }
         Ok(())
     }
@@ -589,6 +589,90 @@ mod tests {
         if let TrayCommand::UpdateModel { name } = &cmd4_cloned {
             assert_eq!(name, "tiny");
         }
+    }
+
+    fn create_test_config() -> Config {
+        use crate::config::{AudioConfig, HotkeyConfig, ModelConfig, TelemetryConfig};
+        Config {
+            hotkey: HotkeyConfig {
+                modifiers: vec!["Control".to_owned(), "Option".to_owned()],
+                key: "Z".to_owned(),
+            },
+            audio: AudioConfig {
+                buffer_size: 1024,
+                sample_rate: 16000,
+            },
+            model: ModelConfig {
+                name: "small".to_owned(),
+                path: "~/.whisper-hotkey/models/ggml-small.bin".to_owned(),
+                preload: true,
+                threads: 4,
+                beam_size: 5,
+                language: None,
+            },
+            telemetry: TelemetryConfig {
+                enabled: true,
+                log_path: "~/.whisper-hotkey/crash.log".to_owned(),
+            },
+        }
+    }
+
+    #[test]
+    #[ignore = "Requires main thread for macOS menu creation"]
+    fn test_build_tray_with_all_states() {
+        // Test that build_tray() can construct tray for all states
+        // Note: This test must run on main thread due to macOS muda::Menu restrictions
+        let config = create_test_config();
+        let mut cached_icons = HashMap::new();
+        cached_icons.insert(
+            AppState::Idle,
+            TrayManager::load_icon(AppState::Idle).unwrap(),
+        );
+        cached_icons.insert(
+            AppState::Recording,
+            TrayManager::load_icon(AppState::Recording).unwrap(),
+        );
+        cached_icons.insert(
+            AppState::Processing,
+            TrayManager::load_icon(AppState::Processing).unwrap(),
+        );
+
+        // Test Idle state
+        let result = TrayManager::build_tray(&config, AppState::Idle, &cached_icons);
+        assert!(
+            result.is_ok(),
+            "Should build tray for Idle state: {:?}",
+            result.err()
+        );
+
+        // Test Recording state
+        let result = TrayManager::build_tray(&config, AppState::Recording, &cached_icons);
+        assert!(
+            result.is_ok(),
+            "Should build tray for Recording state: {:?}",
+            result.err()
+        );
+
+        // Test Processing state
+        let result = TrayManager::build_tray(&config, AppState::Processing, &cached_icons);
+        assert!(
+            result.is_ok(),
+            "Should build tray for Processing state: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn test_build_tray_missing_icon() {
+        // Test that build_tray() fails gracefully when icon is missing from cache
+        let config = create_test_config();
+        let cached_icons = HashMap::new(); // Empty cache
+
+        let result = TrayManager::build_tray(&config, AppState::Idle, &cached_icons);
+        assert!(
+            result.is_err(),
+            "Should fail when icon is missing from cache"
+        );
     }
 
     #[test]
