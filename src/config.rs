@@ -106,8 +106,10 @@ impl Config {
                 }
                 fs::copy(&old_path, &config_path)
                     .context("failed to migrate config from old location")?;
+                fs::remove_file(&old_path)
+                    .context("failed to remove old config file after migration")?;
                 tracing::info!(
-                    "migrated config from {} to {}",
+                    "migrated config from {} to {} and removed old config file",
                     old_path.display(),
                     config_path.display()
                 );
@@ -356,6 +358,76 @@ log_path = "/tmp/crash.log"
     fn test_load_reads_existing_config() {
         // This test would require creating a temp config file
         // Skip for now as it's integration-level testing
+    }
+
+    #[test]
+    #[ignore = "requires filesystem access"]
+    fn test_config_migration_from_old_path() {
+        use std::env;
+
+        // Create unique temp directory for this test
+        let temp_base = env::temp_dir();
+        let test_home = temp_base.join(format!("whisper_test_migration_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs()));
+        fs::create_dir_all(&test_home).unwrap();
+
+        // Save original HOME and set to temp directory
+        let original_home = env::var("HOME").ok();
+        env::set_var("HOME", test_home.to_str().unwrap());
+
+        // Create old config at ~/.whisper-hotkey.toml
+        let old_config_path = test_home.join(".whisper-hotkey.toml");
+        let old_config_content = r#"[hotkey]
+modifiers = ["Command", "Shift"]
+key = "V"
+
+[audio]
+buffer_size = 2048
+sample_rate = 16000
+
+[model]
+name = "base"
+path = "/test/model.bin"
+preload = true
+
+[telemetry]
+enabled = false
+log_path = "/test/log.txt"
+"#;
+        fs::write(&old_config_path, old_config_content).unwrap();
+
+        // Verify old config exists
+        assert!(old_config_path.exists());
+
+        // Load config (should trigger migration)
+        let config = Config::load().unwrap();
+
+        // Verify new config exists at ~/.whisper-hotkey/config.toml
+        let new_config_path = test_home.join(".whisper-hotkey/config.toml");
+        assert!(new_config_path.exists());
+
+        // Verify old config was removed
+        assert!(!old_config_path.exists());
+
+        // Verify config content matches
+        assert_eq!(config.hotkey.modifiers, vec!["Command", "Shift"]);
+        assert_eq!(config.hotkey.key, "V");
+        assert_eq!(config.audio.buffer_size, 2048);
+        assert_eq!(config.model.name, "base");
+        assert!(!config.telemetry.enabled);
+
+        // Restore original HOME
+        if let Some(home) = original_home {
+            env::set_var("HOME", home);
+        } else {
+            env::remove_var("HOME");
+        }
+
+        // Cleanup test directory
+        let _ = fs::remove_dir_all(&test_home);
     }
 
     #[test]
