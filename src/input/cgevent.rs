@@ -233,11 +233,10 @@ mod tests {
     fn test_utf16_encoding_polish() {
         // Test Polish characters encode correctly
         let text = "Zażółć gęślą jaźń";
-        let utf16: Vec<u16> = text.encode_utf16().collect();
 
         // Polish characters with diacritics should encode correctly
         // Each character is a single UTF-16 code unit
-        assert_eq!(utf16.len(), text.chars().count());
+        assert_eq!(text.encode_utf16().count(), text.chars().count());
     }
 
     #[test]

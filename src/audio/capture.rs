@@ -879,12 +879,12 @@ mod tests {
         let result = capture.convert_to_16khz_mono(&samples);
 
         // Should produce approximately 16000 * 10 = 160000 samples
-        #[allow(clippy::cast_precision_loss)]
-        let expected = 16000 * 10;
-        let tolerance = 100; // Allow small tolerance for rounding
+        let expected: usize = 16000 * 10;
+        let tolerance: usize = 100; // Allow small tolerance for rounding
+        let diff = result.len().abs_diff(expected);
         assert!(
-            (result.len() as i32 - expected).abs() < tolerance,
-            "Expected ~{expected} samples, got {}",
+            diff < tolerance,
+            "Expected ~{expected} samples, got {} (diff: {diff})",
             result.len()
         );
     }
