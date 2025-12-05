@@ -563,7 +563,7 @@ mod tests {
             /// Process hotkey release event.
             ///
             /// NOTE: This is a simplified synchronous test harness that processes
-            /// transcription inline (unlike the real HotkeyManager which spawns a thread).
+            /// transcription inline (unlike the real `HotkeyManager` which spawns a thread).
             /// This doesn't validate threading behavior or race conditions.
             fn on_release(&self) {
                 let mut state = self.state.lock().unwrap();
