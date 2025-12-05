@@ -21,11 +21,11 @@ src/
 ├── input/
 │   ├── hotkey.rs       # global-hotkey integration
 │   └── cgevent.rs      # CGEvent text insertion FFI
-├── config.rs           # TOML config (~/.whisper-hotkey.toml)
+├── config.rs           # TOML config (~/.whisper-hotkey/config.toml)
 └── telemetry.rs        # tracing, performance metrics
 ```
 
-**Config:** `~/.whisper-hotkey.toml`
+**Config:** `~/.whisper-hotkey/config.toml`
 ```toml
 [hotkey]
 key = "V"

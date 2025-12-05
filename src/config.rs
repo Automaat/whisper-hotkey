@@ -86,12 +86,33 @@ pub struct TelemetryConfig {
 }
 
 impl Config {
-    /// Load config from ~/.whisper-hotkey.toml
+    /// Load config from ~/.whisper-hotkey/config.toml
+    ///
+    /// Automatically migrates from old path (~/.whisper-hotkey.toml) if found.
+    /// Creates default config if none exists.
     ///
     /// # Errors
-    /// Returns error if config file doesn't exist, is invalid TOML, or path expansion fails
+    /// Returns error if config is invalid TOML or path expansion fails
     pub fn load() -> Result<Self> {
         let config_path = Self::config_path()?;
+
+        // Migrate from old path if needed
+        if !config_path.exists() {
+            let old_path = Self::old_config_path()?;
+            if old_path.exists() {
+                // Ensure new directory exists before migration
+                if let Some(parent) = config_path.parent() {
+                    fs::create_dir_all(parent).context("failed to create config directory")?;
+                }
+                fs::copy(&old_path, &config_path)
+                    .context("failed to migrate config from old location")?;
+                tracing::info!(
+                    "migrated config from {} to {}",
+                    old_path.display(),
+                    config_path.display()
+                );
+            }
+        }
 
         if !config_path.exists() {
             Self::create_default(&config_path).context("failed to create default config")?;
@@ -106,10 +127,20 @@ impl Config {
 
     fn config_path() -> Result<PathBuf> {
         let home = std::env::var("HOME").context("HOME environment variable not set")?;
+        Ok(PathBuf::from(home).join(".whisper-hotkey/config.toml"))
+    }
+
+    fn old_config_path() -> Result<PathBuf> {
+        let home = std::env::var("HOME").context("HOME environment variable not set")?;
         Ok(PathBuf::from(home).join(".whisper-hotkey.toml"))
     }
 
     fn create_default(path: &PathBuf) -> Result<()> {
+        // Ensure parent directory exists
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).context("failed to create config directory")?;
+        }
+
         let default_config = r#"[hotkey]
 modifiers = ["Control", "Option"]
 key = "Z"
@@ -134,7 +165,7 @@ log_path = "~/.whisper-hotkey/crash.log"
         Ok(())
     }
 
-    /// Save config to ~/.whisper-hotkey.toml
+    /// Save config to ~/.whisper-hotkey/config.toml
     ///
     /// # Errors
     /// Returns error if TOML serialization fails or file write fails
@@ -399,13 +430,13 @@ log_path = "/tmp/crash.log"
     #[test]
     fn test_config_path() {
         let path = Config::config_path().unwrap();
-        assert!(path.to_string_lossy().contains(".whisper-hotkey.toml"));
+        assert!(path.to_string_lossy().contains(".whisper-hotkey/config.toml"));
     }
 
     #[test]
     fn test_get_config_path() {
         let path = Config::get_config_path().unwrap();
-        assert!(path.to_string_lossy().contains(".whisper-hotkey.toml"));
+        assert!(path.to_string_lossy().contains(".whisper-hotkey/config.toml"));
     }
 
     #[test]
