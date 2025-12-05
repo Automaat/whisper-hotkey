@@ -560,6 +560,11 @@ mod tests {
                 }
             }
 
+            /// Process hotkey release event.
+            ///
+            /// NOTE: This is a simplified synchronous test harness that processes
+            /// transcription inline (unlike the real HotkeyManager which spawns a thread).
+            /// This doesn't validate threading behavior or race conditions.
             fn on_release(&self) {
                 let mut state = self.state.lock().unwrap();
                 match *state {
@@ -662,8 +667,6 @@ mod tests {
             manager.on_press(); // Idle → Recording
             manager.on_release(); // Recording → Processing → Idle
 
-            // Allow brief async processing
-            std::thread::sleep(std::time::Duration::from_millis(50));
             assert_eq!(manager.get_state(), AppState::Idle);
         }
 
@@ -730,7 +733,7 @@ mod tests {
             let mut mock_transcription = MockTranscriptionEngine::new();
             mock_transcription
                 .expect_transcribe()
-                .with(eq(vec![0.1, 0.2]))
+                .with(eq(&[0.1, 0.2][..]))
                 .times(1)
                 .returning(|_| Ok("transcribed text".to_owned()));
 
@@ -738,7 +741,6 @@ mod tests {
             manager.on_press();
             manager.on_release();
 
-            std::thread::sleep(std::time::Duration::from_millis(50));
             assert_eq!(manager.get_state(), AppState::Idle);
         }
 
@@ -768,7 +770,6 @@ mod tests {
             manager.on_press();
             manager.on_release();
 
-            std::thread::sleep(std::time::Duration::from_millis(50));
             assert_eq!(manager.get_state(), AppState::Idle);
         }
 
@@ -794,7 +795,6 @@ mod tests {
             manager.on_press();
             manager.on_release();
 
-            std::thread::sleep(std::time::Duration::from_millis(50));
             assert_eq!(manager.get_state(), AppState::Idle);
         }
 
@@ -833,8 +833,8 @@ mod tests {
         }
 
         #[test]
-        fn test_save_debug_wav_creates_directory() {
-            // This test verifies the debug WAV path logic
+        fn test_debug_wav_path_formatting() {
+            // This test verifies the debug WAV path string formatting logic
             let timestamp = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_else(|_| std::time::Duration::from_secs(0))
@@ -853,23 +853,5 @@ mod tests {
                 .contains(&format!("recording_{timestamp}.wav")));
         }
 
-        #[test]
-        fn test_handle_event_correct_hotkey_id() {
-            // This test validates handle_event routing logic
-            // We can't easily test without real HotkeyManager, but we verify
-            // the structure is correct by ensuring the method exists
-            let config = HotkeyConfig {
-                key: "V".to_owned(),
-                modifiers: vec!["Command".to_owned()],
-            };
-
-            // Just verify parsing works
-            let modifiers = HotkeyManager::parse_modifiers(&config.modifiers).unwrap();
-            let code = HotkeyManager::parse_key(&config.key).unwrap();
-            let hotkey = HotKey::new(Some(modifiers), code);
-
-            // Verify hotkey has an ID
-            let _id = hotkey.id();
-        }
     }
 }

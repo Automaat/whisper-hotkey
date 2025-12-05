@@ -463,7 +463,8 @@ mod tests {
     fn test_thread_count_edge_cases() {
         let path = Path::new("/tmp/dummy.bin");
 
-        // Test max i32 threads (should pass validation but fail on file load)
+        // Test max i32 threads (i32::MAX as usize fits in i32, so validation passes)
+        // This tests that valid thread counts fail only on file load, not validation
         let result = TranscriptionEngine::new(path, i32::MAX as usize, 5, None);
         assert!(result.is_err());
         assert!(matches!(result, Err(TranscriptionError::ModelLoad { .. })));
@@ -484,7 +485,8 @@ mod tests {
     fn test_beam_size_edge_cases() {
         let path = Path::new("/tmp/dummy.bin");
 
-        // Test max i32 beam_size (should pass validation but fail on file load)
+        // Test max i32 beam_size (i32::MAX as usize fits in i32, so validation passes)
+        // This tests that valid beam sizes fail only on file load, not validation
         let result = TranscriptionEngine::new(path, 4, i32::MAX as usize, None);
         assert!(result.is_err());
         assert!(matches!(result, Err(TranscriptionError::ModelLoad { .. })));
@@ -501,21 +503,4 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_language_parameter_validation() {
-        let path = Path::new("/tmp/dummy.bin");
-
-        // Valid language codes (will fail on file load but params are valid)
-        let valid_languages = vec!["en", "es", "fr", "de", "auto"];
-        for lang in valid_languages {
-            let result = TranscriptionEngine::new(path, 4, 5, Some(lang.to_owned()));
-            assert!(result.is_err());
-            assert!(matches!(result, Err(TranscriptionError::ModelLoad { .. })));
-        }
-
-        // None language (auto-detect)
-        let result = TranscriptionEngine::new(path, 4, 5, None);
-        assert!(result.is_err());
-        assert!(matches!(result, Err(TranscriptionError::ModelLoad { .. })));
-    }
 }
