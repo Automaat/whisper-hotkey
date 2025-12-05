@@ -93,6 +93,43 @@ mod tests {
     }
 
     #[test]
+    fn test_expand_log_path_tilde_only() {
+        // Test edge case: just "~/" should expand to HOME
+        let home = env::var("HOME").expect("HOME not set");
+        let result = expand_log_path("~/").unwrap();
+        assert_eq!(result, PathBuf::from(home));
+    }
+
+    #[test]
+    fn test_expand_log_path_multiple_components() {
+        // Test multiple path components after ~
+        let home = env::var("HOME").expect("HOME not set");
+        let result = expand_log_path("~/a/b/c/d.log").unwrap();
+        assert_eq!(result, PathBuf::from(home).join("a/b/c/d.log"));
+    }
+
+    #[test]
+    fn test_expand_log_path_preserves_absolute_paths() {
+        // Ensure absolute paths aren't modified
+        let result = expand_log_path("/usr/local/var/log/app.log").unwrap();
+        assert_eq!(result, PathBuf::from("/usr/local/var/log/app.log"));
+    }
+
+    #[test]
+    fn test_expand_log_path_preserves_relative_paths() {
+        // Ensure relative paths without ~ aren't modified
+        let result = expand_log_path("./logs/app.log").unwrap();
+        assert_eq!(result, PathBuf::from("./logs/app.log"));
+    }
+
+    #[test]
+    fn test_expand_log_path_with_tilde_not_prefix() {
+        // Tilde not at start should be preserved
+        let result = expand_log_path("/logs/~backup/app.log").unwrap();
+        assert_eq!(result, PathBuf::from("/logs/~backup/app.log"));
+    }
+
+    #[test]
     #[ignore = "requires filesystem access and global tracing subscriber"]
     fn test_init_with_telemetry_enabled() {
         // Would need to:

@@ -213,4 +213,105 @@ mod tests {
         // but it tests the code path
         let _ = insert_text_safe("test");
     }
+
+    #[test]
+    fn test_utf16_encoding_emojis() {
+        // Test that emojis encode correctly to UTF-16
+        let text = "Hello 👋 World 🌍";
+        let utf16: Vec<u16> = text.encode_utf16().collect();
+
+        // Emojis require 2 UTF-16 code units each (surrogate pairs)
+        // "Hello " = 6, "👋" = 2, " World " = 7, "🌍" = 2 = 17 total
+        assert_eq!(utf16.len(), 17);
+
+        // UTF-16 length should be more than character count
+        // (because 2 emojis are encoded as 4 UTF-16 code units)
+        assert!(utf16.len() > text.chars().count());
+    }
+
+    #[test]
+    fn test_utf16_encoding_polish() {
+        // Test Polish characters encode correctly
+        let text = "Zażółć gęślą jaźń";
+        let utf16: Vec<u16> = text.encode_utf16().collect();
+
+        // Polish characters with diacritics should encode correctly
+        // Each character is a single UTF-16 code unit
+        assert_eq!(utf16.len(), text.chars().count());
+    }
+
+    #[test]
+    fn test_preview_text_truncation() {
+        // Test preview truncation at 50 chars
+        let long_text = "a".repeat(100);
+
+        // Simulate preview logic from insert_text
+        let preview = if long_text.len() > 50 {
+            format!("{}...", &long_text[..47])
+        } else {
+            long_text.clone()
+        };
+
+        assert_eq!(preview.len(), 50); // 47 + "..." = 50
+        assert!(preview.ends_with("..."));
+    }
+
+    #[test]
+    fn test_preview_text_no_truncation() {
+        // Test short text isn't truncated
+        let short_text = "Hello World";
+
+        let preview = if short_text.len() > 50 {
+            format!("{}...", &short_text[..47])
+        } else {
+            short_text.to_owned()
+        };
+
+        assert_eq!(preview, short_text);
+        assert!(!preview.ends_with("..."));
+    }
+
+    #[test]
+    fn test_preview_text_exactly_50_chars() {
+        // Edge case: exactly 50 characters
+        let text = "a".repeat(50);
+
+        let preview = if text.len() > 50 {
+            format!("{}...", &text[..47])
+        } else {
+            text.clone()
+        };
+
+        assert_eq!(preview.len(), 50);
+        assert!(!preview.ends_with("..."));
+    }
+
+    #[test]
+    fn test_utf16_encoding_newlines_and_tabs() {
+        // Test whitespace characters encode correctly
+        let text = "Line1\nLine2\tTabbed";
+        let utf16: Vec<u16> = text.encode_utf16().collect();
+
+        // Newlines and tabs should be preserved in UTF-16
+        assert_eq!(utf16.len(), text.chars().count());
+
+        // Verify newline and tab are present
+        let decoded: String = char::decode_utf16(utf16.iter().copied())
+            .map(|r| r.unwrap_or('�'))
+            .collect();
+        assert!(decoded.contains('\n'));
+        assert!(decoded.contains('\t'));
+    }
+
+    #[test]
+    fn test_text_insertion_error_types() {
+        // Verify error types can be created and displayed
+        let err1 = TextInsertionError::EmptyText;
+        let err2 = TextInsertionError::EventSourceCreation;
+        let err3 = TextInsertionError::EventCreation;
+
+        assert!(err1.to_string().contains("empty"));
+        assert!(err2.to_string().contains("source"));
+        assert!(err3.to_string().contains("CGEvent"));
+    }
 }

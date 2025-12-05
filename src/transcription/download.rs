@@ -207,4 +207,63 @@ mod tests {
         // Cleanup
         fs::remove_file(&model_path).unwrap();
     }
+
+    #[test]
+    fn test_download_model_error_handling() {
+        let temp_dir = std::env::temp_dir();
+        let model_path = temp_dir.join("test_error_model.bin");
+
+        // Ensure file doesn't exist
+        let _ = fs::remove_file(&model_path);
+
+        // Try to download with invalid model name (should trigger 404)
+        let result = download_model("invalid-model-!@#$%", &model_path);
+
+        // Should fail with error
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("404") || err_msg.contains("download failed"));
+
+        // Cleanup
+        let _ = fs::remove_file(&model_path);
+    }
+
+    #[test]
+    fn test_model_filename_empty_string() {
+        // Edge case: empty model name
+        assert_eq!(model_filename(""), "ggml-.bin");
+    }
+
+    #[test]
+    fn test_model_filename_special_characters() {
+        // Model names with dots (like base.en)
+        assert_eq!(model_filename("small.en"), "ggml-small.en.bin");
+        assert_eq!(model_filename("tiny.en"), "ggml-tiny.en.bin");
+    }
+
+    #[test]
+    fn test_ensure_model_with_relative_path() {
+        // Test with relative path (should work)
+        let model_path = Path::new("./test_relative.bin");
+
+        // Create dummy file
+        fs::write(model_path, b"dummy").unwrap();
+
+        let result = ensure_model_downloaded("tiny", model_path);
+
+        // Should return false (file exists)
+        assert!(result.is_ok());
+        assert!(!result.unwrap());
+
+        // Cleanup
+        fs::remove_file(model_path).unwrap();
+    }
+
+    #[test]
+    fn test_download_model_temp_file_extension() {
+        // Verify temp file path has .tmp extension
+        let model_path = Path::new("/tmp/test_model.bin");
+        let temp_path = model_path.with_extension("tmp");
+        assert_eq!(temp_path, Path::new("/tmp/test_model.tmp"));
+    }
 }
