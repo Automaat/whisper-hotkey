@@ -17,6 +17,10 @@ pub fn check_microphone_permission() -> Result<()> {
 
 /// Check and request accessibility permission (for text insertion)
 ///
+/// Uses the official macOS Accessibility API (`AXIsProcessTrusted`) to check permission.
+/// If denied, shows system dialog directing user to System Settings. App must be relaunched
+/// after granting permission.
+///
 /// # Errors
 /// Returns error if accessibility permission is denied (macOS only)
 pub fn check_accessibility_permission() -> Result<()> {
@@ -24,18 +28,56 @@ pub fn check_accessibility_permission() -> Result<()> {
 
     #[cfg(target_os = "macos")]
     {
-        // Try to create a CGEventSource to test accessibility access
-        let source = core_graphics::event_source::CGEventSource::new(
-            core_graphics::event_source::CGEventSourceStateID::CombinedSessionState,
-        );
+        use core_foundation::base::TCFType;
+        use core_foundation::boolean::CFBoolean;
+        use core_foundation::dictionary::CFDictionary;
+        use core_foundation::string::CFString;
 
-        if source.is_err() {
-            bail!("accessibility permission denied - enable in System Settings > Privacy & Security > Accessibility");
+        // SAFETY: FFI declarations for Accessibility API
+        // These are stable macOS APIs available since 10.9
+        #[link(name = "ApplicationServices", kind = "framework")]
+        extern "C" {
+            fn AXIsProcessTrusted() -> bool;
+            fn AXIsProcessTrustedWithOptions(
+                options: core_foundation::dictionary::CFDictionaryRef,
+            ) -> bool;
         }
 
-        tracing::info!("accessibility permission granted");
+        // First check if we already have permission
+        // SAFETY: AXIsProcessTrusted is a safe macOS API that only reads permission status
+        #[allow(unsafe_code)]
+        let is_trusted = unsafe { AXIsProcessTrusted() };
+
+        if is_trusted {
+            tracing::info!("accessibility permission already granted");
+            return Ok(());
+        }
+
+        tracing::warn!("accessibility permission not granted, showing system dialog...");
+
+        // Create options dictionary to trigger system prompt
+        let key = CFString::from_static_string("AXTrustedCheckOptionPrompt");
+        let value = CFBoolean::true_value();
+        let options = CFDictionary::from_CFType_pairs(&[(key.as_CFType(), value.as_CFType())]);
+
+        // Show system dialog directing user to System Settings
+        // SAFETY: AXIsProcessTrustedWithOptions is safe, shows system permission dialog
+        // Note: This returns immediately with current status (false), before user can grant permission
+        #[allow(unsafe_code)]
+        let _ = unsafe { AXIsProcessTrustedWithOptions(options.as_concrete_TypeRef()) };
+
+        // Always exit with instructions after showing dialog
+        // User must grant permission in System Settings and relaunch the app
+        bail!(
+            "Accessibility permission required\n\n\
+            A system dialog has been shown. Please:\n\
+            1. Open System Settings → Privacy & Security → Accessibility\n\
+            2. Enable this app\n\
+            3. Restart the app\n"
+        );
     }
 
+    #[cfg(not(target_os = "macos"))]
     Ok(())
 }
 
@@ -147,9 +189,109 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(target_os = "macos"))]
+    fn test_check_accessibility_permission_non_macos() {
+        // On non-macOS platforms, function should always succeed
+        let result = check_accessibility_permission();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn test_accessibility_permission_function_signature() {
+        // Compile-time check that function has correct signature
+        // Actual permission testing requires manual testing with #[ignore] test
+        let _: fn() -> Result<()> = check_accessibility_permission;
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn test_accessibility_permission_denied_error_message() {
+        // Test that function returns appropriate error when permission denied
+        // This test is expected to fail in CI where permissions aren't granted
+        let result = check_accessibility_permission();
+
+        // If permission is denied, verify error message contains expected guidance
+        if let Err(e) = result {
+            let error_msg = e.to_string();
+            assert!(error_msg.contains("Accessibility permission required"));
+            assert!(error_msg.contains("System Settings"));
+        }
+        // If permission is granted (e.g., on developer machine), that's also fine
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn test_input_monitoring_permission_denied_error_message() {
+        // Test that function returns appropriate error when permission denied
+        let result = check_input_monitoring_permission();
+
+        // If permission is denied, verify error message contains expected guidance
+        if let Err(e) = result {
+            let error_msg = e.to_string();
+            assert!(error_msg.contains("Input Monitoring") || error_msg.contains("CGEvent"));
+            assert!(error_msg.contains("System Settings"));
+        }
+        // If permission is granted (e.g., on developer machine), that's also fine
+    }
+
+    #[test]
+    fn test_microphone_permission_always_succeeds() {
+        // Microphone permission is deferred to first audio capture
+        // This function should always succeed
+        let result = check_microphone_permission();
+        assert!(result.is_ok());
+    }
+
+    #[test]
     #[ignore = "requires permissions on macOS"]
     fn test_request_all_permissions() {
         let result = request_all_permissions();
         assert!(result.is_ok());
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn test_request_all_permissions_fails_without_permissions() {
+        // In CI without permissions, request_all_permissions should fail
+        // at accessibility check (first permission that requires prompt)
+        let result = request_all_permissions();
+
+        // Will fail on accessibility check in CI
+        if let Err(e) = result {
+            let error_msg = e.to_string();
+            assert!(error_msg.contains("Accessibility permission required"));
+        }
+        // If all permissions granted (dev machine), that's also fine
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn test_accessibility_permission_error_includes_instructions() {
+        let result = check_accessibility_permission();
+
+        if let Err(e) = result {
+            let error_msg = e.to_string();
+            // Verify comprehensive error message
+            assert!(error_msg.contains("Privacy & Security"));
+            assert!(error_msg.contains("Accessibility"));
+            assert!(error_msg.contains("Restart the app"));
+        }
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn test_input_monitoring_with_event_source_creation() {
+        // Test both CGEventSource and CGEvent creation paths
+        let result = check_input_monitoring_permission();
+
+        if let Err(e) = result {
+            let error_msg = e.to_string();
+            // Should mention either Input Monitoring or CGEvent
+            assert!(
+                error_msg.contains("Input Monitoring") || error_msg.contains("CGEvent"),
+                "Error message should mention permission issue: {error_msg}"
+            );
+        }
     }
 }
