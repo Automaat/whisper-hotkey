@@ -40,6 +40,18 @@ pub struct TranscriptionEngine {
 }
 
 impl TranscriptionEngine {
+    /// Determines sampling strategy based on beam size (pure, testable)
+    const fn get_sampling_strategy(beam_size: i32) -> SamplingStrategy {
+        if beam_size > 1 {
+            SamplingStrategy::BeamSearch {
+                beam_size,
+                patience: -1.0,
+            }
+        } else {
+            SamplingStrategy::Greedy { best_of: 1 }
+        }
+    }
+
     /// Creates a new `TranscriptionEngine` by loading the model from the given path
     ///
     /// # Errors
@@ -125,15 +137,7 @@ impl TranscriptionEngine {
             .map_err(|_| TranscriptionError::StateCreation)?;
 
         // Configure transcription parameters with optimization settings
-        let strategy = if self.beam_size > 1 {
-            SamplingStrategy::BeamSearch {
-                beam_size: self.beam_size,
-                patience: -1.0,
-            }
-        } else {
-            SamplingStrategy::Greedy { best_of: 1 }
-        };
-
+        let strategy = Self::get_sampling_strategy(self.beam_size);
         let mut params = FullParams::new(strategy);
         params.set_n_threads(self.threads);
         params.set_print_special(false);
@@ -500,6 +504,84 @@ mod tests {
             if let Err(TranscriptionError::ModelLoad { source, .. }) = result {
                 assert!(source.to_string().contains("beam_size value too large"));
             }
+        }
+    }
+
+    // Phase 4: Sampling strategy tests (pure logic, fully testable)
+    #[test]
+    fn test_get_sampling_strategy_greedy() {
+        // beam_size = 1 should use Greedy strategy
+        let strategy = TranscriptionEngine::get_sampling_strategy(1);
+        assert!(matches!(strategy, SamplingStrategy::Greedy { best_of: 1 }));
+    }
+
+    #[test]
+    fn test_get_sampling_strategy_beam_search() {
+        // beam_size > 1 should use BeamSearch strategy
+        let strategy = TranscriptionEngine::get_sampling_strategy(5);
+        assert!(
+            matches!(
+                strategy,
+                SamplingStrategy::BeamSearch {
+                    beam_size: 5,
+                    patience: -1.0
+                }
+            ),
+            "Expected BeamSearch with beam_size=5, patience=-1.0"
+        );
+    }
+
+    #[test]
+    fn test_get_sampling_strategy_various_beam_sizes() {
+        // Test different beam sizes
+        for beam in [1, 2, 3, 5, 8, 10] {
+            let strategy = TranscriptionEngine::get_sampling_strategy(beam);
+            if beam == 1 {
+                assert!(matches!(strategy, SamplingStrategy::Greedy { .. }));
+            } else {
+                assert!(
+                    matches!(strategy, SamplingStrategy::BeamSearch { beam_size, .. } if beam_size == beam),
+                    "Expected BeamSearch with beam_size={beam}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_get_sampling_strategy_large_beam() {
+        // Test with large beam size
+        let strategy = TranscriptionEngine::get_sampling_strategy(100);
+        assert!(
+            matches!(
+                strategy,
+                SamplingStrategy::BeamSearch { beam_size: 100, .. }
+            ),
+            "Expected BeamSearch with beam_size=100"
+        );
+    }
+
+    #[test]
+    fn test_get_sampling_strategy_min_beam() {
+        // Test boundary: beam_size = 1 is Greedy, beam_size = 2 is BeamSearch
+        let greedy = TranscriptionEngine::get_sampling_strategy(1);
+        assert!(matches!(greedy, SamplingStrategy::Greedy { .. }));
+
+        let beam = TranscriptionEngine::get_sampling_strategy(2);
+        assert!(matches!(beam, SamplingStrategy::BeamSearch { .. }));
+    }
+
+    #[test]
+    fn test_get_sampling_strategy_patience_always_negative_one() {
+        // Verify patience is always -1.0 for BeamSearch
+        for beam_size in [2, 5, 10, 20] {
+            let strategy = TranscriptionEngine::get_sampling_strategy(beam_size);
+            assert!(
+                matches!(
+                    strategy,
+                    SamplingStrategy::BeamSearch { patience: -1.0, .. }
+                ),
+                "Expected BeamSearch with patience=-1.0 for beam_size={beam_size}"
+            );
         }
     }
 }
