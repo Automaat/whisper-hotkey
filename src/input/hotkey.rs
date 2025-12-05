@@ -617,7 +617,10 @@ mod tests {
         #[test]
         fn test_on_press_from_recording_ignored() {
             let mut mock_audio = MockAudioCapture::new();
-            mock_audio.expect_start_recording().times(1).returning(|| Ok(()));
+            mock_audio
+                .expect_start_recording()
+                .times(1)
+                .returning(|| Ok(()));
 
             let manager = TestHotkeyManager::new(mock_audio, None);
             manager.on_press(); // First press: Idle → Recording
@@ -640,7 +643,10 @@ mod tests {
         #[test]
         fn test_on_release_from_recording_stops_and_transcribes() {
             let mut mock_audio = MockAudioCapture::new();
-            mock_audio.expect_start_recording().times(1).returning(|| Ok(()));
+            mock_audio
+                .expect_start_recording()
+                .times(1)
+                .returning(|| Ok(()));
             mock_audio
                 .expect_stop_recording()
                 .times(1)
@@ -674,7 +680,10 @@ mod tests {
         #[test]
         fn test_on_release_with_empty_samples() {
             let mut mock_audio = MockAudioCapture::new();
-            mock_audio.expect_start_recording().times(1).returning(|| Ok(()));
+            mock_audio
+                .expect_start_recording()
+                .times(1)
+                .returning(|| Ok(()));
             mock_audio
                 .expect_stop_recording()
                 .times(1)
@@ -690,7 +699,10 @@ mod tests {
         #[test]
         fn test_on_release_with_audio_error() {
             let mut mock_audio = MockAudioCapture::new();
-            mock_audio.expect_start_recording().times(1).returning(|| Ok(()));
+            mock_audio
+                .expect_start_recording()
+                .times(1)
+                .returning(|| Ok(()));
             mock_audio
                 .expect_stop_recording()
                 .times(1)
@@ -706,7 +718,10 @@ mod tests {
         #[test]
         fn test_process_transcription_success() {
             let mut mock_audio = MockAudioCapture::new();
-            mock_audio.expect_start_recording().times(1).returning(|| Ok(()));
+            mock_audio
+                .expect_start_recording()
+                .times(1)
+                .returning(|| Ok(()));
             mock_audio
                 .expect_stop_recording()
                 .times(1)
@@ -730,7 +745,10 @@ mod tests {
         #[test]
         fn test_process_transcription_failure() {
             let mut mock_audio = MockAudioCapture::new();
-            mock_audio.expect_start_recording().times(1).returning(|| Ok(()));
+            mock_audio
+                .expect_start_recording()
+                .times(1)
+                .returning(|| Ok(()));
             mock_audio
                 .expect_stop_recording()
                 .times(1)
@@ -740,7 +758,11 @@ mod tests {
             mock_transcription
                 .expect_transcribe()
                 .times(1)
-                .returning(|_| Err(TranscriptionError::Transcription(anyhow!("transcription failed"))));
+                .returning(|_| {
+                    Err(TranscriptionError::Transcription(anyhow!(
+                        "transcription failed"
+                    )))
+                });
 
             let manager = TestHotkeyManager::new(mock_audio, Some(mock_transcription));
             manager.on_press();
@@ -753,7 +775,10 @@ mod tests {
         #[test]
         fn test_process_transcription_empty_text() {
             let mut mock_audio = MockAudioCapture::new();
-            mock_audio.expect_start_recording().times(1).returning(|| Ok(()));
+            mock_audio
+                .expect_start_recording()
+                .times(1)
+                .returning(|| Ok(()));
             mock_audio
                 .expect_stop_recording()
                 .times(1)
@@ -776,7 +801,10 @@ mod tests {
         #[test]
         fn test_process_transcription_no_engine() {
             let mut mock_audio = MockAudioCapture::new();
-            mock_audio.expect_start_recording().times(1).returning(|| Ok(()));
+            mock_audio
+                .expect_start_recording()
+                .times(1)
+                .returning(|| Ok(()));
             mock_audio
                 .expect_stop_recording()
                 .times(1)
