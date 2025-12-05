@@ -852,6 +852,5 @@ mod tests {
                 .to_string_lossy()
                 .contains(&format!("recording_{timestamp}.wav")));
         }
-
     }
 }
