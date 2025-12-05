@@ -18,7 +18,8 @@ pub fn check_microphone_permission() -> Result<()> {
 /// Check and request accessibility permission (for text insertion)
 ///
 /// Uses the official macOS Accessibility API (`AXIsProcessTrusted`) to check permission.
-/// If denied, triggers the system permission dialog automatically.
+/// If denied, shows system dialog directing user to System Settings. App must be relaunched
+/// after granting permission.
 ///
 /// # Errors
 /// Returns error if accessibility permission is denied (macOS only)
@@ -51,29 +52,30 @@ pub fn check_accessibility_permission() -> Result<()> {
             return Ok(());
         }
 
-        tracing::warn!("accessibility permission not granted, requesting...");
+        tracing::warn!("accessibility permission not granted, showing system dialog...");
 
         // Create options dictionary to trigger system prompt
         let key = CFString::from_static_string("AXTrustedCheckOptionPrompt");
         let value = CFBoolean::true_value();
         let options = CFDictionary::from_CFType_pairs(&[(key.as_CFType(), value.as_CFType())]);
 
-        // Request permission with system dialog
+        // Show system dialog directing user to System Settings
         // SAFETY: AXIsProcessTrustedWithOptions is safe, shows system permission dialog
-        let is_trusted_after_prompt =
-            unsafe { AXIsProcessTrustedWithOptions(options.as_concrete_TypeRef()) };
+        // Note: This returns immediately with current status (false), before user can grant permission
+        let _ = unsafe { AXIsProcessTrustedWithOptions(options.as_concrete_TypeRef()) };
 
-        if !is_trusted_after_prompt {
-            bail!(
-                "Accessibility permission denied\n\n\
-                Enable in: System Settings → Privacy & Security → Accessibility\n\
-                Add and enable this app, then restart.\n"
-            );
-        }
-
-        tracing::info!("accessibility permission granted");
+        // Always exit with instructions after showing dialog
+        // User must grant permission in System Settings and relaunch the app
+        bail!(
+            "Accessibility permission required\n\n\
+            A system dialog has been shown. Please:\n\
+            1. Open System Settings → Privacy & Security → Accessibility\n\
+            2. Enable this app\n\
+            3. Restart the app\n"
+        );
     }
 
+    #[cfg(not(target_os = "macos"))]
     Ok(())
 }
 
