@@ -17,6 +17,9 @@ pub fn check_microphone_permission() -> Result<()> {
 
 /// Check and request accessibility permission (for text insertion)
 ///
+/// Uses the official macOS Accessibility API (`AXIsProcessTrusted`) to check permission.
+/// If denied, triggers the system permission dialog automatically.
+///
 /// # Errors
 /// Returns error if accessibility permission is denied (macOS only)
 pub fn check_accessibility_permission() -> Result<()> {
@@ -24,13 +27,46 @@ pub fn check_accessibility_permission() -> Result<()> {
 
     #[cfg(target_os = "macos")]
     {
-        // Try to create a CGEventSource to test accessibility access
-        let source = core_graphics::event_source::CGEventSource::new(
-            core_graphics::event_source::CGEventSourceStateID::CombinedSessionState,
-        );
+        use core_foundation::base::TCFType;
+        use core_foundation::boolean::CFBoolean;
+        use core_foundation::dictionary::CFDictionary;
+        use core_foundation::string::CFString;
 
-        if source.is_err() {
-            bail!("accessibility permission denied - enable in System Settings > Privacy & Security > Accessibility");
+        // SAFETY: FFI declarations for Accessibility API
+        // These are stable macOS APIs available since 10.9
+        #[link(name = "ApplicationServices", kind = "framework")]
+        extern "C" {
+            fn AXIsProcessTrusted() -> bool;
+            fn AXIsProcessTrustedWithOptions(options: core_foundation::dictionary::CFDictionaryRef)
+                -> bool;
+        }
+
+        // First check if we already have permission
+        // SAFETY: AXIsProcessTrusted is a safe macOS API that only reads permission status
+        let is_trusted = unsafe { AXIsProcessTrusted() };
+
+        if is_trusted {
+            tracing::info!("accessibility permission already granted");
+            return Ok(());
+        }
+
+        tracing::warn!("accessibility permission not granted, requesting...");
+
+        // Create options dictionary to trigger system prompt
+        let key = CFString::from_static_string("AXTrustedCheckOptionPrompt");
+        let value = CFBoolean::true_value();
+        let options = CFDictionary::from_CFType_pairs(&[(key.as_CFType(), value.as_CFType())]);
+
+        // Request permission with system dialog
+        // SAFETY: AXIsProcessTrustedWithOptions is safe, shows system permission dialog
+        let is_trusted_after_prompt = unsafe { AXIsProcessTrustedWithOptions(options.as_concrete_TypeRef()) };
+
+        if !is_trusted_after_prompt {
+            bail!(
+                "Accessibility permission denied\n\n\
+                Enable in: System Settings → Privacy & Security → Accessibility\n\
+                Add and enable this app, then restart.\n"
+            );
         }
 
         tracing::info!("accessibility permission granted");
