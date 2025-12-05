@@ -29,6 +29,7 @@ pub struct HotkeyManager {
     state: Arc<Mutex<AppState>>,
     audio: Arc<Mutex<AudioCapture>>,
     transcription: Option<Arc<TranscriptionEngine>>,
+    recording_enabled: bool,
 }
 
 impl HotkeyManager {
@@ -40,6 +41,7 @@ impl HotkeyManager {
         config: &HotkeyConfig,
         audio: Arc<Mutex<AudioCapture>>,
         transcription: Option<Arc<TranscriptionEngine>>,
+        recording_enabled: bool,
     ) -> Result<Self> {
         let manager = GlobalHotKeyManager::new().context("failed to create hotkey manager")?;
 
@@ -59,6 +61,7 @@ impl HotkeyManager {
             state: Arc::new(Mutex::new(AppState::Idle)),
             audio,
             transcription,
+            recording_enabled,
         })
     }
 
@@ -140,7 +143,9 @@ impl HotkeyManager {
                             samples.len()
                         );
 
-                        Self::save_debug_wav(&samples);
+                        if self.recording_enabled {
+                            Self::save_debug_wav(&samples);
+                        }
                         self.process_transcription(samples);
                     }
                     Err(e) => {
