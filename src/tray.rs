@@ -1,11 +1,67 @@
 use anyhow::{anyhow, Context, Result};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use tray_icon::menu::{CheckMenuItem, Menu, MenuId, MenuItem, PredefinedMenuItem, Submenu};
+use tray_icon::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tray_icon::{Icon, TrayIconBuilder};
 
 use crate::config::{Config, ModelType};
 use crate::input::hotkey::AppState;
+
+/// Menu configuration data (pure, testable)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MenuConfig {
+    pub status_text: &'static str,
+    pub hotkeys: Vec<HotkeyOption>,
+    pub models: Vec<ModelOption>,
+    pub threads: Vec<ThreadOption>,
+    pub beam_sizes: Vec<BeamSizeOption>,
+    pub languages: Vec<LanguageOption>,
+    pub buffer_sizes: Vec<BufferSizeOption>,
+    pub preload_enabled: bool,
+    pub telemetry_enabled: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HotkeyOption {
+    pub label: String,
+    pub modifiers: Vec<String>,
+    pub key: String,
+    pub selected: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelOption {
+    pub name: String,
+    pub selected: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ThreadOption {
+    pub count: usize,
+    pub label: String,
+    pub selected: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BeamSizeOption {
+    pub size: usize,
+    pub label: String,
+    pub selected: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LanguageOption {
+    pub display_name: String,
+    pub code: Option<String>,
+    pub selected: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BufferSizeOption {
+    pub size: usize,
+    pub label: String,
+    pub selected: bool,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TrayCommand {
@@ -158,96 +214,59 @@ impl TrayManager {
         }
     }
 
-    pub(crate) fn build_menu(config: &Config, app_state: Option<AppState>) -> Result<Menu> {
-        let menu = Menu::new();
-
-        // Status item showing current state (non-clickable)
-        let status_text = Self::get_status_text(app_state);
-        let status = MenuItem::new(status_text, false, None);
-        menu.append(&status)
-            .context("failed to append status item")?;
-        menu.append(&PredefinedMenuItem::separator())
-            .context("failed to append separator")?;
-
-        // Hotkey submenu
-        let hotkey_submenu = Submenu::new("Hotkey", true);
-
-        // Common hotkey combinations
-        let hotkeys = vec![
+    /// Build menu configuration from app config (pure, testable)
+    fn build_menu_config(config: &Config, app_state: Option<AppState>) -> MenuConfig {
+        // Hotkey options
+        let hotkey_definitions = [
             ("Control+Option+Z", vec!["Control", "Option"], "Z"),
             ("Command+Shift+V", vec!["Command", "Shift"], "V"),
             ("Command+Option+V", vec!["Command", "Option"], "V"),
             ("Control+Shift+Space", vec!["Control", "Shift"], "Space"),
         ];
 
-        for (label, mods, key) in hotkeys {
-            let is_selected = Self::is_hotkey_selected(config, &mods, key);
-            let display_label = Self::format_label_with_checkmark(label, is_selected);
-            let item = MenuItem::with_id(MenuId::new(label), &display_label, true, None);
-            hotkey_submenu
-                .append(&item)
-                .context("failed to append hotkey item")?;
-        }
+        let hotkeys = hotkey_definitions
+            .iter()
+            .map(|(label, mods, key)| HotkeyOption {
+                label: (*label).to_owned(),
+                modifiers: mods.iter().map(|s| (*s).to_owned()).collect(),
+                key: (*key).to_owned(),
+                selected: Self::is_hotkey_selected(config, mods, key),
+            })
+            .collect();
 
-        menu.append(&hotkey_submenu)
-            .context("failed to append hotkey submenu")?;
+        // Model options
+        let models = ModelType::variants()
+            .iter()
+            .map(|model_type| ModelOption {
+                name: model_type.as_str().to_owned(),
+                selected: config.model.effective_name() == model_type.as_str(),
+            })
+            .collect();
 
-        // Model submenu
-        let model_submenu = Submenu::new("Model", true);
-        let models = ModelType::variants();
+        // Thread options
+        let thread_counts = [2, 4, 6, 8];
+        let threads = thread_counts
+            .iter()
+            .map(|&count| ThreadOption {
+                count,
+                label: format!("{} threads", count),
+                selected: config.model.threads == count,
+            })
+            .collect();
 
-        for model_type in models {
-            let model_name = model_type.as_str();
-            let is_selected = config.model.effective_name() == model_name;
-            let display_label = Self::format_label_with_checkmark(model_name, is_selected);
-            let item = MenuItem::with_id(MenuId::new(model_name), &display_label, true, None);
-            model_submenu
-                .append(&item)
-                .context("failed to append model item")?;
-        }
+        // Beam size options
+        let beam_sizes_list = [1, 3, 5, 8, 10];
+        let beam_sizes = beam_sizes_list
+            .iter()
+            .map(|&size| BeamSizeOption {
+                size,
+                label: format!("Beam size {}", size),
+                selected: config.model.beam_size == size,
+            })
+            .collect();
 
-        menu.append(&model_submenu)
-            .context("failed to append model submenu")?;
-
-        // Optimization submenu
-        let opt_submenu = Submenu::new("Optimization", true);
-
-        // Threads submenu
-        let threads_submenu = Submenu::new("Threads", true);
-        for threads in [2, 4, 6, 8] {
-            let is_selected = config.model.threads == threads;
-            let base_label = format!("{} threads", threads);
-            let label = Self::format_label_with_checkmark(&base_label, is_selected);
-            let item = MenuItem::with_id(MenuId::new(&base_label), &label, true, None);
-            threads_submenu
-                .append(&item)
-                .context("failed to append threads item")?;
-        }
-        opt_submenu
-            .append(&threads_submenu)
-            .context("failed to append threads submenu")?;
-
-        // Beam size submenu
-        let beam_submenu = Submenu::new("Beam Size", true);
-        for beam in [1, 3, 5, 8, 10] {
-            let is_selected = config.model.beam_size == beam;
-            let base_label = format!("Beam size {}", beam);
-            let label = Self::format_label_with_checkmark(&base_label, is_selected);
-            let item = MenuItem::with_id(MenuId::new(&base_label), &label, true, None);
-            beam_submenu
-                .append(&item)
-                .context("failed to append beam item")?;
-        }
-        opt_submenu
-            .append(&beam_submenu)
-            .context("failed to append beam submenu")?;
-
-        menu.append(&opt_submenu)
-            .context("failed to append optimization submenu")?;
-
-        // Language submenu
-        let lang_submenu = Submenu::new("Language", true);
-        let languages = vec![
+        // Language options
+        let language_definitions = [
             ("Auto-detect", None),
             ("English", Some("en")),
             ("Polish", Some("pl")),
@@ -256,55 +275,123 @@ impl TrayManager {
             ("German", Some("de")),
         ];
 
-        for (label, lang_code) in languages {
-            let is_selected = config.model.language.as_deref() == lang_code;
-            let display_label = Self::format_label_with_checkmark(label, is_selected);
-            let item = MenuItem::with_id(MenuId::new(label), &display_label, true, None);
-            lang_submenu
-                .append(&item)
-                .context("failed to append language item")?;
+        let languages = language_definitions
+            .iter()
+            .map(|(display, code)| LanguageOption {
+                display_name: (*display).to_owned(),
+                code: code.map(std::borrow::ToOwned::to_owned),
+                selected: config.model.language.as_deref() == *code,
+            })
+            .collect();
+
+        // Buffer size options
+        let buffer_sizes_list = [512, 1024, 2048, 4096];
+        let buffer_sizes = buffer_sizes_list
+            .iter()
+            .map(|&size| BufferSizeOption {
+                size,
+                label: format!("{} samples", size),
+                selected: config.audio.buffer_size == size,
+            })
+            .collect();
+
+        MenuConfig {
+            status_text: Self::get_status_text(app_state),
+            hotkeys,
+            models,
+            threads,
+            beam_sizes,
+            languages,
+            buffer_sizes,
+            preload_enabled: config.model.preload,
+            telemetry_enabled: config.telemetry.enabled,
         }
+    }
 
-        menu.append(&lang_submenu)
-            .context("failed to append language submenu")?;
+    pub(crate) fn build_menu(config: &Config, app_state: Option<AppState>) -> Result<Menu> {
+        // Build pure configuration (testable logic)
+        let menu_config = Self::build_menu_config(config, app_state);
 
-        // Audio buffer submenu
+        // Create menu using configuration (FFI calls)
+        let menu = Menu::new();
+
+        // Status
+        let status = MenuItem::new(menu_config.status_text, false, None);
+        menu.append(&status).context("failed to append status")?;
+        menu.append(&PredefinedMenuItem::separator())?;
+
+        // Hotkeys
+        let hotkey_submenu = Submenu::new("Hotkey", true);
+        for hotkey in &menu_config.hotkeys {
+            let label = Self::format_label_with_checkmark(&hotkey.label, hotkey.selected);
+            hotkey_submenu.append(&MenuItem::new(&label, true, None))?;
+        }
+        menu.append(&hotkey_submenu)?;
+
+        // Models
+        let model_submenu = Submenu::new("Model", true);
+        for model in &menu_config.models {
+            let label = Self::format_label_with_checkmark(&model.name, model.selected);
+            model_submenu.append(&MenuItem::new(&label, true, None))?;
+        }
+        menu.append(&model_submenu)?;
+
+        // Optimization submenu
+        let opt_submenu = Submenu::new("Optimization", true);
+
+        // Threads
+        let threads_submenu = Submenu::new("Threads", true);
+        for thread in &menu_config.threads {
+            let label = Self::format_label_with_checkmark(&thread.label, thread.selected);
+            threads_submenu.append(&MenuItem::new(&label, true, None))?;
+        }
+        opt_submenu.append(&threads_submenu)?;
+
+        // Beam sizes
+        let beam_submenu = Submenu::new("Beam Size", true);
+        for beam in &menu_config.beam_sizes {
+            let label = Self::format_label_with_checkmark(&beam.label, beam.selected);
+            beam_submenu.append(&MenuItem::new(&label, true, None))?;
+        }
+        opt_submenu.append(&beam_submenu)?;
+
+        menu.append(&opt_submenu)?;
+
+        // Languages
+        let lang_submenu = Submenu::new("Language", true);
+        for lang in &menu_config.languages {
+            let label = Self::format_label_with_checkmark(&lang.display_name, lang.selected);
+            lang_submenu.append(&MenuItem::new(&label, true, None))?;
+        }
+        menu.append(&lang_submenu)?;
+
+        // Buffer sizes
         let buffer_submenu = Submenu::new("Audio Buffer", true);
-        for size in [512, 1024, 2048, 4096] {
-            let is_selected = config.audio.buffer_size == size;
-            let base_label = format!("{} samples", size);
-            let label = Self::format_label_with_checkmark(&base_label, is_selected);
-            let item = MenuItem::with_id(MenuId::new(&base_label), &label, true, None);
-            buffer_submenu
-                .append(&item)
-                .context("failed to append buffer item")?;
+        for buffer in &menu_config.buffer_sizes {
+            let label = Self::format_label_with_checkmark(&buffer.label, buffer.selected);
+            buffer_submenu.append(&MenuItem::new(&label, true, None))?;
         }
-
-        menu.append(&buffer_submenu)
-            .context("failed to append buffer submenu")?;
+        menu.append(&buffer_submenu)?;
 
         // Toggles
-        menu.append(&PredefinedMenuItem::separator())
-            .context("failed to append separator")?;
-
-        let preload = CheckMenuItem::new("Preload Model", config.model.preload, true, None);
-        menu.append(&preload)
-            .context("failed to append preload item")?;
-
-        let telemetry = CheckMenuItem::new("Telemetry", config.telemetry.enabled, true, None);
-        menu.append(&telemetry)
-            .context("failed to append telemetry item")?;
+        menu.append(&PredefinedMenuItem::separator())?;
+        menu.append(&CheckMenuItem::new(
+            "Preload Model",
+            menu_config.preload_enabled,
+            true,
+            None,
+        ))?;
+        menu.append(&CheckMenuItem::new(
+            "Telemetry",
+            menu_config.telemetry_enabled,
+            true,
+            None,
+        ))?;
 
         // Actions
-        menu.append(&PredefinedMenuItem::separator())
-            .context("failed to append separator")?;
-
-        let open_config = MenuItem::new("Open Config File", true, None);
-        menu.append(&open_config)
-            .context("failed to append open config item")?;
-
-        menu.append(&PredefinedMenuItem::quit(None))
-            .context("failed to append quit item")?;
+        menu.append(&PredefinedMenuItem::separator())?;
+        menu.append(&MenuItem::new("Open Config File", true, None))?;
+        menu.append(&PredefinedMenuItem::quit(None))?;
 
         Ok(menu)
     }
@@ -1308,6 +1395,241 @@ mod tests {
         assert_eq!(
             TrayManager::parse_menu_event("✓ 4096 samples"),
             Some(TrayCommand::UpdateBufferSize(4096))
+        );
+    }
+
+    // Phase 4: Menu configuration tests (pure logic, fully testable)
+    #[test]
+    fn test_build_menu_config_hotkeys() {
+        let config = create_menu_test_config(); // Command+Shift+V
+        let menu_config = TrayManager::build_menu_config(&config, Some(AppState::Idle));
+
+        assert_eq!(menu_config.hotkeys.len(), 4);
+
+        // Check selected hotkey
+        let selected = menu_config.hotkeys.iter().find(|h| h.selected).unwrap();
+        assert_eq!(selected.modifiers, vec!["Command", "Shift"]);
+        assert_eq!(selected.key, "V");
+
+        // Check all hotkeys present
+        assert!(menu_config
+            .hotkeys
+            .iter()
+            .any(|h| h.label == "Control+Option+Z"));
+        assert!(menu_config
+            .hotkeys
+            .iter()
+            .any(|h| h.label == "Control+Shift+Space"));
+    }
+
+    #[test]
+    fn test_build_menu_config_models() {
+        let mut config = create_menu_test_config();
+        config.model.model_type = Some(ModelType::Tiny);
+        let menu_config = TrayManager::build_menu_config(&config, None);
+
+        assert_eq!(menu_config.models.len(), 12);
+
+        let selected = menu_config.models.iter().find(|m| m.selected).unwrap();
+        assert_eq!(selected.name, "tiny");
+
+        // Check all models present
+        let model_names: Vec<_> = menu_config.models.iter().map(|m| m.name.as_str()).collect();
+        assert!(model_names.contains(&"tiny"));
+        assert!(model_names.contains(&"base"));
+        assert!(model_names.contains(&"small"));
+        assert!(model_names.contains(&"medium"));
+    }
+
+    #[test]
+    fn test_build_menu_config_threads() {
+        let mut config = create_menu_test_config();
+        config.model.threads = 8;
+        let menu_config = TrayManager::build_menu_config(&config, None);
+
+        assert_eq!(menu_config.threads.len(), 4);
+
+        let selected = menu_config.threads.iter().find(|t| t.selected).unwrap();
+        assert_eq!(selected.count, 8);
+        assert_eq!(selected.label, "8 threads");
+
+        // Check all thread counts present
+        let counts: Vec<_> = menu_config.threads.iter().map(|t| t.count).collect();
+        assert_eq!(counts, vec![2, 4, 6, 8]);
+    }
+
+    #[test]
+    fn test_build_menu_config_beam_sizes() {
+        let mut config = create_menu_test_config();
+        config.model.beam_size = 10;
+        let menu_config = TrayManager::build_menu_config(&config, None);
+
+        assert_eq!(menu_config.beam_sizes.len(), 5);
+
+        let selected = menu_config.beam_sizes.iter().find(|b| b.selected).unwrap();
+        assert_eq!(selected.size, 10);
+        assert_eq!(selected.label, "Beam size 10");
+
+        // Check all beam sizes present
+        let sizes: Vec<_> = menu_config.beam_sizes.iter().map(|b| b.size).collect();
+        assert_eq!(sizes, vec![1, 3, 5, 8, 10]);
+    }
+
+    #[test]
+    fn test_build_menu_config_languages() {
+        let mut config = create_menu_test_config();
+        config.model.language = Some("pl".to_owned());
+        let menu_config = TrayManager::build_menu_config(&config, None);
+
+        assert_eq!(menu_config.languages.len(), 6);
+
+        let selected = menu_config.languages.iter().find(|l| l.selected).unwrap();
+        assert_eq!(selected.display_name, "Polish");
+        assert_eq!(selected.code, Some("pl".to_owned()));
+
+        // Check Auto-detect option
+        let auto = menu_config
+            .languages
+            .iter()
+            .find(|l| l.code.is_none())
+            .unwrap();
+        assert_eq!(auto.display_name, "Auto-detect");
+        assert!(!auto.selected);
+    }
+
+    #[test]
+    fn test_build_menu_config_language_auto_detect() {
+        let config = create_menu_test_config(); // language = None
+        let menu_config = TrayManager::build_menu_config(&config, None);
+
+        let selected = menu_config.languages.iter().find(|l| l.selected).unwrap();
+        assert_eq!(selected.display_name, "Auto-detect");
+        assert_eq!(selected.code, None);
+    }
+
+    #[test]
+    fn test_build_menu_config_buffer_sizes() {
+        let mut config = create_menu_test_config();
+        config.audio.buffer_size = 2048;
+        let menu_config = TrayManager::build_menu_config(&config, None);
+
+        assert_eq!(menu_config.buffer_sizes.len(), 4);
+
+        let selected = menu_config
+            .buffer_sizes
+            .iter()
+            .find(|b| b.selected)
+            .unwrap();
+        assert_eq!(selected.size, 2048);
+        assert_eq!(selected.label, "2048 samples");
+
+        // Check all sizes present
+        let sizes: Vec<_> = menu_config.buffer_sizes.iter().map(|b| b.size).collect();
+        assert_eq!(sizes, vec![512, 1024, 2048, 4096]);
+    }
+
+    #[test]
+    fn test_build_menu_config_toggles() {
+        let mut config = create_menu_test_config();
+        config.model.preload = false;
+        config.telemetry.enabled = true;
+        let menu_config = TrayManager::build_menu_config(&config, None);
+
+        assert!(!menu_config.preload_enabled);
+        assert!(menu_config.telemetry_enabled);
+    }
+
+    #[test]
+    fn test_build_menu_config_status_text() {
+        let config = create_menu_test_config();
+
+        let idle = TrayManager::build_menu_config(&config, Some(AppState::Idle));
+        assert_eq!(idle.status_text, "Whisper Hotkey - Ready");
+
+        let recording = TrayManager::build_menu_config(&config, Some(AppState::Recording));
+        assert_eq!(recording.status_text, "🎤 Recording...");
+
+        let processing = TrayManager::build_menu_config(&config, Some(AppState::Processing));
+        assert_eq!(processing.status_text, "⏳ Transcribing...");
+
+        let none = TrayManager::build_menu_config(&config, None);
+        assert_eq!(none.status_text, "Whisper Hotkey");
+    }
+
+    #[test]
+    fn test_menu_config_selection_logic() {
+        // Test that only one item is selected per category
+        let config = create_menu_test_config();
+        let menu_config = TrayManager::build_menu_config(&config, None);
+
+        // Hotkeys: exactly one selected
+        assert_eq!(menu_config.hotkeys.iter().filter(|h| h.selected).count(), 1);
+
+        // Models: exactly one selected
+        assert_eq!(menu_config.models.iter().filter(|m| m.selected).count(), 1);
+
+        // Threads: exactly one selected
+        assert_eq!(menu_config.threads.iter().filter(|t| t.selected).count(), 1);
+
+        // Beam sizes: exactly one selected
+        assert_eq!(
+            menu_config.beam_sizes.iter().filter(|b| b.selected).count(),
+            1
+        );
+
+        // Languages: exactly one selected
+        assert_eq!(
+            menu_config.languages.iter().filter(|l| l.selected).count(),
+            1
+        );
+
+        // Buffer sizes: exactly one selected
+        assert_eq!(
+            menu_config
+                .buffer_sizes
+                .iter()
+                .filter(|b| b.selected)
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn test_menu_config_with_different_configs() {
+        // Test with minimal config
+        let mut config = create_menu_test_config();
+        config.model.threads = 2;
+        config.model.beam_size = 1;
+        config.audio.buffer_size = 512;
+
+        let menu_config = TrayManager::build_menu_config(&config, None);
+
+        assert_eq!(
+            menu_config
+                .threads
+                .iter()
+                .find(|t| t.selected)
+                .unwrap()
+                .count,
+            2
+        );
+        assert_eq!(
+            menu_config
+                .beam_sizes
+                .iter()
+                .find(|b| b.selected)
+                .unwrap()
+                .size,
+            1
+        );
+        assert_eq!(
+            menu_config
+                .buffer_sizes
+                .iter()
+                .find(|b| b.selected)
+                .unwrap()
+                .size,
+            512
         );
     }
 }
