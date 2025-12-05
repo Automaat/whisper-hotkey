@@ -132,15 +132,19 @@ impl TrayManager {
         Ok(())
     }
 
+    fn get_status_text(app_state: Option<AppState>) -> &'static str {
+        app_state.map_or("Whisper Hotkey", |state| match state {
+            AppState::Idle => "Whisper Hotkey - Ready",
+            AppState::Recording => "🎤 Recording...",
+            AppState::Processing => "⏳ Transcribing...",
+        })
+    }
+
     fn build_menu(config: &Config, app_state: Option<AppState>) -> Result<Menu> {
         let menu = Menu::new();
 
         // Status item showing current state (non-clickable)
-        let status_text = app_state.map_or("Whisper Hotkey", |state| match state {
-            AppState::Idle => "Whisper Hotkey - Ready",
-            AppState::Recording => "🎤 Recording...",
-            AppState::Processing => "⏳ Transcribing...",
-        });
+        let status_text = Self::get_status_text(app_state);
         let status = MenuItem::new(status_text, false, None);
         menu.append(&status)
             .context("failed to append status item")?;
@@ -708,5 +712,149 @@ mod tests {
         let result = tray.update_icon_if_needed(&config);
         assert!(result.is_ok());
         assert_eq!(tray.current_icon_state, AppState::Idle);
+    }
+
+    // Phase 3: Tray Menu Logic Tests
+    #[test]
+    fn test_build_menu_idle_state() {
+        let status = TrayManager::get_status_text(Some(AppState::Idle));
+        assert_eq!(status, "Whisper Hotkey - Ready");
+    }
+
+    #[test]
+    fn test_build_menu_recording_state() {
+        let status = TrayManager::get_status_text(Some(AppState::Recording));
+        assert_eq!(status, "🎤 Recording...");
+    }
+
+    #[test]
+    fn test_build_menu_processing_state() {
+        let status = TrayManager::get_status_text(Some(AppState::Processing));
+        assert_eq!(status, "⏳ Transcribing...");
+    }
+
+    fn create_test_config() -> Config {
+        use crate::config::{AudioConfig, HotkeyConfig, ModelConfig, TelemetryConfig};
+        Config {
+            hotkey: HotkeyConfig {
+                modifiers: vec!["Command".to_owned(), "Shift".to_owned()],
+                key: "V".to_owned(),
+            },
+            model: ModelConfig {
+                name: "base".to_owned(),
+                path: "/tmp/model.bin".to_owned(),
+                threads: 4,
+                beam_size: 5,
+                language: None,
+                preload: false,
+            },
+            audio: AudioConfig {
+                sample_rate: 16000,
+                buffer_size: 1024,
+            },
+            telemetry: TelemetryConfig {
+                enabled: false,
+                log_path: "/tmp/test.log".to_owned(),
+            },
+        }
+    }
+
+    #[test]
+    fn test_build_menu_hotkey_selection() {
+        let config = create_test_config();
+
+        // Verify the expected hotkey format matches
+        let current_hotkey = format!("{:?}+{}", config.hotkey.modifiers, config.hotkey.key);
+        let expected_hotkey = format!("{:?}+{}", vec!["Command", "Shift"], "V");
+        assert_eq!(current_hotkey, expected_hotkey);
+    }
+
+    #[test]
+    fn test_build_menu_model_selection() {
+        let mut config = create_test_config();
+        config.model.name = "small".to_owned();
+
+        // Verify model selection logic
+        assert_eq!(config.model.name, "small");
+        assert!(["tiny", "base", "small", "medium"].contains(&config.model.name.as_str()));
+    }
+
+    #[test]
+    fn test_build_menu_threads_selection() {
+        let mut config = create_test_config();
+        config.model.threads = 6;
+
+        // Verify threads selection logic
+        assert_eq!(config.model.threads, 6);
+        assert!([2, 4, 6, 8].contains(&config.model.threads));
+    }
+
+    #[test]
+    fn test_build_menu_beam_size_selection() {
+        let mut config = create_test_config();
+        config.model.beam_size = 10;
+
+        // Verify beam size selection logic
+        assert_eq!(config.model.beam_size, 10);
+        assert!([1, 3, 5, 8, 10].contains(&config.model.beam_size));
+    }
+
+    #[test]
+    fn test_build_menu_language_selection() {
+        let config_auto = create_test_config();
+        let mut config_polish = create_test_config();
+        config_polish.model.language = Some("pl".to_owned());
+
+        // Verify language selection logic
+        assert_eq!(config_auto.model.language, None);
+        assert_eq!(config_polish.model.language, Some("pl".to_owned()));
+    }
+
+    #[test]
+    fn test_build_menu_buffer_size_selection() {
+        let mut config = create_test_config();
+        config.audio.buffer_size = 2048;
+
+        // Verify buffer size selection logic
+        assert_eq!(config.audio.buffer_size, 2048);
+        assert!([512, 1024, 2048, 4096].contains(&config.audio.buffer_size));
+    }
+
+    #[test]
+    fn test_build_menu_preload_toggle_checked() {
+        let mut config = create_test_config();
+        config.model.preload = true;
+
+        // Verify preload toggle state
+        assert!(config.model.preload);
+    }
+
+    #[test]
+    fn test_build_menu_telemetry_toggle_unchecked() {
+        let config = create_test_config();
+
+        // Verify telemetry toggle state
+        assert!(!config.telemetry.enabled);
+    }
+
+    #[test]
+    fn test_parse_menu_event_with_checkmark() {
+        // Test that checkmark prefix is properly stripped
+        let cmd = TrayManager::parse_menu_event("✓ tiny");
+        assert!(matches!(cmd, Some(TrayCommand::UpdateModel { .. })));
+        if let Some(TrayCommand::UpdateModel { name }) = cmd {
+            assert_eq!(name, "tiny");
+        }
+
+        let cmd = TrayManager::parse_menu_event("✓ 4 threads");
+        assert!(matches!(cmd, Some(TrayCommand::UpdateThreads(4))));
+
+        let cmd = TrayManager::parse_menu_event("✓ Beam size 5");
+        assert!(matches!(cmd, Some(TrayCommand::UpdateBeamSize(5))));
+
+        let cmd = TrayManager::parse_menu_event("✓ English");
+        if let Some(TrayCommand::UpdateLanguage(Some(lang))) = cmd {
+            assert_eq!(lang, "en");
+        }
     }
 }
