@@ -591,6 +591,90 @@ mod tests {
         }
     }
 
+    fn create_test_config() -> Config {
+        use crate::config::{AudioConfig, HotkeyConfig, ModelConfig, TelemetryConfig};
+        Config {
+            hotkey: HotkeyConfig {
+                modifiers: vec!["Control".to_owned(), "Option".to_owned()],
+                key: "Z".to_owned(),
+            },
+            audio: AudioConfig {
+                buffer_size: 1024,
+                sample_rate: 16000,
+            },
+            model: ModelConfig {
+                name: "small".to_owned(),
+                path: "~/.whisper-hotkey/models/ggml-small.bin".to_owned(),
+                preload: true,
+                threads: 4,
+                beam_size: 5,
+                language: None,
+            },
+            telemetry: TelemetryConfig {
+                enabled: true,
+                log_path: "~/.whisper-hotkey/crash.log".to_owned(),
+            },
+        }
+    }
+
+    #[test]
+    #[ignore = "Requires main thread for macOS menu creation"]
+    fn test_build_tray_with_all_states() {
+        // Test that build_tray() can construct tray for all states
+        // Note: This test must run on main thread due to macOS muda::Menu restrictions
+        let config = create_test_config();
+        let mut cached_icons = HashMap::new();
+        cached_icons.insert(
+            AppState::Idle,
+            TrayManager::load_icon(AppState::Idle).unwrap(),
+        );
+        cached_icons.insert(
+            AppState::Recording,
+            TrayManager::load_icon(AppState::Recording).unwrap(),
+        );
+        cached_icons.insert(
+            AppState::Processing,
+            TrayManager::load_icon(AppState::Processing).unwrap(),
+        );
+
+        // Test Idle state
+        let result = TrayManager::build_tray(&config, AppState::Idle, &cached_icons);
+        assert!(
+            result.is_ok(),
+            "Should build tray for Idle state: {:?}",
+            result.err()
+        );
+
+        // Test Recording state
+        let result = TrayManager::build_tray(&config, AppState::Recording, &cached_icons);
+        assert!(
+            result.is_ok(),
+            "Should build tray for Recording state: {:?}",
+            result.err()
+        );
+
+        // Test Processing state
+        let result = TrayManager::build_tray(&config, AppState::Processing, &cached_icons);
+        assert!(
+            result.is_ok(),
+            "Should build tray for Processing state: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn test_build_tray_missing_icon() {
+        // Test that build_tray() fails gracefully when icon is missing from cache
+        let config = create_test_config();
+        let cached_icons = HashMap::new(); // Empty cache
+
+        let result = TrayManager::build_tray(&config, AppState::Idle, &cached_icons);
+        assert!(
+            result.is_err(),
+            "Should fail when icon is missing from cache"
+        );
+    }
+
     #[test]
     #[ignore = "Requires full config and tray icon initialization"]
     fn test_state_icon_changes() {
