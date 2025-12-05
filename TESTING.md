@@ -2,7 +2,7 @@
 
 ## Test Coverage
 
-**Current Status:** 58.10% line coverage (146 passing, 46 ignored)
+**Current Status:** 61.69% line coverage (163 passing, 46 ignored)
 
 Run coverage report:
 ```bash
@@ -14,13 +14,13 @@ cargo llvm-cov --html && open target/llvm-cov/html/index.html # HTML
 **Coverage by Module:**
 - `config.rs`: 88.07% ✅
 - `input/hotkey.rs`: 72.31% ✅
-- `audio/capture.rs`: 68.24% ✅
+- `audio/capture.rs`: 70.28% ✅
 - `transcription/download.rs`: 60.87%
+- `tray.rs`: 58.97%
 - `permissions.rs`: 55.83%
 - `input/cgevent.rs`: 54.17%
 - `telemetry.rs`: 49.40%
-- `tray.rs`: 46.91%
-- `transcription/engine.rs`: 35.94%
+- `transcription/engine.rs`: 45.26%
 - `main.rs`: 0.00% (binary, not unit testable)
 
 **Expected Coverage Gaps:**
@@ -37,7 +37,11 @@ These account for ~590 lines (40% of gaps). Target realistic coverage: **65-70%*
 - ✅ Phase 1: Low-hanging fruit (47% → 60%)
 - ✅ Phase 2: Mock infrastructure (60% → 75%)
 - ✅ Phase 3: Tray menu logic (75% → 82%)
-- ✅ Phase 4: Final gaps & validation (documentation, CI)
+- ✅ Phase 4: Testability refactoring (58% → 62%)
+  - Extracted pure configuration logic from FFI calls
+  - tray.rs: Menu configuration now 100% testable
+  - engine.rs: Sampling strategy extracted and tested
+  - +17 new unit tests covering previously untestable code
 
 ---
 
