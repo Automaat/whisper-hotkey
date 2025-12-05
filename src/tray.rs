@@ -4,13 +4,13 @@ use std::sync::{Arc, Mutex};
 use tray_icon::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tray_icon::{Icon, TrayIconBuilder};
 
-use crate::config::Config;
+use crate::config::{Config, ModelType};
 use crate::input::hotkey::AppState;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TrayCommand {
     UpdateHotkey { modifiers: Vec<String>, key: String },
-    UpdateModel { name: String },
+    UpdateModel { model_type: ModelType },
     UpdateThreads(usize),
     UpdateBeamSize(usize),
     UpdateLanguage(Option<String>),
@@ -194,10 +194,11 @@ impl TrayManager {
 
         // Model submenu
         let model_submenu = Submenu::new("Model", true);
-        let models = vec!["tiny", "base", "small", "medium"];
+        let models = ModelType::variants();
 
-        for model_name in models {
-            let is_selected = config.model.name == model_name;
+        for model_type in models {
+            let model_name = model_type.as_str();
+            let is_selected = config.model.model_type == Some(model_type);
             let display_label = Self::format_label_with_checkmark(model_name, is_selected);
             let item = MenuItem::new(&display_label, true, None);
             model_submenu
@@ -354,8 +355,41 @@ impl TrayManager {
             }),
 
             // Models
-            "tiny" | "base" | "small" | "medium" => Some(TrayCommand::UpdateModel {
-                name: id.to_owned(),
+            "tiny" => Some(TrayCommand::UpdateModel {
+                model_type: ModelType::Tiny,
+            }),
+            "tiny.en" => Some(TrayCommand::UpdateModel {
+                model_type: ModelType::TinyEn,
+            }),
+            "base" => Some(TrayCommand::UpdateModel {
+                model_type: ModelType::Base,
+            }),
+            "base.en" => Some(TrayCommand::UpdateModel {
+                model_type: ModelType::BaseEn,
+            }),
+            "small" => Some(TrayCommand::UpdateModel {
+                model_type: ModelType::Small,
+            }),
+            "small.en" => Some(TrayCommand::UpdateModel {
+                model_type: ModelType::SmallEn,
+            }),
+            "medium" => Some(TrayCommand::UpdateModel {
+                model_type: ModelType::Medium,
+            }),
+            "medium.en" => Some(TrayCommand::UpdateModel {
+                model_type: ModelType::MediumEn,
+            }),
+            "large" => Some(TrayCommand::UpdateModel {
+                model_type: ModelType::Large,
+            }),
+            "large-v1" => Some(TrayCommand::UpdateModel {
+                model_type: ModelType::LargeV1,
+            }),
+            "large-v2" => Some(TrayCommand::UpdateModel {
+                model_type: ModelType::LargeV2,
+            }),
+            "large-v3" => Some(TrayCommand::UpdateModel {
+                model_type: ModelType::LargeV3,
             }),
 
             // Threads
@@ -417,8 +451,8 @@ mod tests {
     fn test_parse_menu_event_models() {
         let cmd = TrayManager::parse_menu_event("tiny");
         assert!(matches!(cmd, Some(TrayCommand::UpdateModel { .. })));
-        if let Some(TrayCommand::UpdateModel { name }) = cmd {
-            assert_eq!(name, "tiny");
+        if let Some(TrayCommand::UpdateModel { model_type }) = cmd {
+            assert_eq!(model_type, ModelType::Tiny);
         }
 
         let cmd = TrayManager::parse_menu_event("base");
@@ -548,7 +582,7 @@ mod tests {
         assert!(debug.contains("UpdateHotkey"));
 
         let cmd2 = TrayCommand::UpdateModel {
-            name: "base".to_owned(),
+            model_type: ModelType::Base,
         };
         let debug = format!("{cmd2:?}");
         assert!(debug.contains("UpdateModel"));
@@ -583,11 +617,11 @@ mod tests {
         assert!(matches!(&cmd3_cloned, TrayCommand::TogglePreload));
 
         let cmd4 = TrayCommand::UpdateModel {
-            name: "tiny".to_owned(),
+            model_type: ModelType::Tiny,
         };
         let cmd4_cloned = cmd4.clone();
-        if let TrayCommand::UpdateModel { name } = &cmd4_cloned {
-            assert_eq!(name, "tiny");
+        if let TrayCommand::UpdateModel { model_type } = &cmd4_cloned {
+            assert_eq!(model_type, &ModelType::Tiny);
         }
     }
 
@@ -605,8 +639,9 @@ mod tests {
                 sample_rate: 16000,
             },
             model: ModelConfig {
-                name: "small".to_owned(),
-                path: "~/.whisper-hotkey/models/ggml-small.bin".to_owned(),
+                model_type: Some(ModelType::Small),
+                name: None,
+                path: None,
                 preload: true,
                 threads: 4,
                 beam_size: 5,
@@ -739,15 +774,18 @@ mod tests {
     }
 
     fn create_menu_test_config() -> Config {
-        use crate::config::{AudioConfig, HotkeyConfig, ModelConfig, TelemetryConfig};
+        use crate::config::{
+            AudioConfig, HotkeyConfig, ModelConfig, RecordingConfig, TelemetryConfig,
+        };
         Config {
             hotkey: HotkeyConfig {
                 modifiers: vec!["Command".to_owned(), "Shift".to_owned()],
                 key: "V".to_owned(),
             },
             model: ModelConfig {
-                name: "base".to_owned(),
-                path: "/tmp/model.bin".to_owned(),
+                model_type: Some(ModelType::Base),
+                name: None,
+                path: None,
                 threads: 4,
                 beam_size: 5,
                 language: None,
@@ -761,6 +799,7 @@ mod tests {
                 enabled: false,
                 log_path: "/tmp/test.log".to_owned(),
             },
+            recording: RecordingConfig::default(),
         }
     }
 
@@ -805,7 +844,7 @@ mod tests {
     #[ignore = "requires main thread for Menu creation on macOS"]
     fn test_build_menu_model_selection() {
         let mut config = create_menu_test_config();
-        config.model.name = "small".to_owned();
+        config.model.model_type = Some(ModelType::Small);
         let menu = TrayManager::build_menu(&config, Some(AppState::Idle)).unwrap();
 
         // Find Model submenu
@@ -1055,8 +1094,8 @@ mod tests {
         // Test that checkmark prefix is properly stripped
         let cmd = TrayManager::parse_menu_event("✓ tiny");
         assert!(matches!(cmd, Some(TrayCommand::UpdateModel { .. })));
-        if let Some(TrayCommand::UpdateModel { name }) = cmd {
-            assert_eq!(name, "tiny");
+        if let Some(TrayCommand::UpdateModel { model_type }) = cmd {
+            assert_eq!(model_type, ModelType::Tiny);
         }
 
         let cmd = TrayManager::parse_menu_event("✓ 4 threads");
@@ -1143,12 +1182,18 @@ mod tests {
 
     #[test]
     fn test_parse_menu_event_all_models() {
-        // Test all 4 model options
-        for model in &["tiny", "base", "small", "medium"] {
-            let cmd = TrayManager::parse_menu_event(model);
+        // Test all model options
+        let models = [
+            ("tiny", ModelType::Tiny),
+            ("base", ModelType::Base),
+            ("small", ModelType::Small),
+            ("medium", ModelType::Medium),
+        ];
+        for (name, expected_type) in &models {
+            let cmd = TrayManager::parse_menu_event(name);
             assert!(matches!(cmd, Some(TrayCommand::UpdateModel { .. })));
-            if let Some(TrayCommand::UpdateModel { name }) = cmd {
-                assert_eq!(name, *model);
+            if let Some(TrayCommand::UpdateModel { model_type }) = cmd {
+                assert_eq!(model_type, *expected_type);
             }
         }
     }
