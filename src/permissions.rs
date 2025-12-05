@@ -285,13 +285,12 @@ mod tests {
         // Test both CGEventSource and CGEvent creation paths
         let result = check_input_monitoring_permission();
 
-        if result.is_err() {
-            let error_msg = result.unwrap_err().to_string();
+        if let Err(e) = result {
+            let error_msg = e.to_string();
             // Should mention either Input Monitoring or CGEvent
             assert!(
                 error_msg.contains("Input Monitoring") || error_msg.contains("CGEvent"),
-                "Error message should mention permission issue: {}",
-                error_msg
+                "Error message should mention permission issue: {error_msg}"
             );
         }
     }
