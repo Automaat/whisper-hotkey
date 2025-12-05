@@ -2,7 +2,7 @@
 
 ## Test Coverage
 
-**Current Status:** 61.69% line coverage (163 passing, 46 ignored)
+**Current Status:** 62.03% line coverage (163 passing, 46 ignored)
 
 Run coverage report:
 ```bash
@@ -27,11 +27,11 @@ cargo llvm-cov --html && open target/llvm-cov/html/index.html # HTML
 
 Some modules have lower coverage due to external dependencies that cannot be mocked in unit tests:
 
-- **transcription/engine.rs** (180 lines): Requires actual Whisper model file (~75MB). Tests are `#[ignore]`
-- **tray.rs** (200 lines): Requires macOS main thread for Menu/TrayIcon creation. Tests are `#[ignore]`
-- **main.rs** (210 lines): Binary initialization and event loop, requires full system integration
+- **transcription/engine.rs** (327 lines, 180 uncovered): Requires actual Whisper model file (~75MB). Tests are `#[ignore]`
+- **tray.rs** (1,105 lines, 439 uncovered): Requires macOS main thread for Menu/TrayIcon creation. Tests are `#[ignore]`
+- **main.rs** (210 lines, 210 uncovered): Binary initialization and event loop, requires full system integration
 
-These account for ~590 lines (40% of gaps). Target realistic coverage: **65-70%** after accounting for integration-only code.
+These account for 829 uncovered lines (58.5% of total 1,416 gaps). Remaining gaps are testable. Current 62.03% coverage is realistic given integration-heavy codebase.
 
 **Phase Completion:**
 - ✅ Phase 1: Low-hanging fruit (47% → 60%)
