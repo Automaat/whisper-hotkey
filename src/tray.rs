@@ -735,7 +735,7 @@ mod tests {
         assert_eq!(status, "Whisper Hotkey");
     }
 
-    fn create_test_config() -> Config {
+    fn create_menu_test_config() -> Config {
         use crate::config::{AudioConfig, HotkeyConfig, ModelConfig, TelemetryConfig};
         Config {
             hotkey: HotkeyConfig {
@@ -764,7 +764,7 @@ mod tests {
     #[test]
     #[ignore = "requires main thread for Menu creation on macOS"]
     fn test_build_menu_hotkey_selection() {
-        let config = create_test_config(); // Command+Shift+V
+        let config = create_menu_test_config(); // Command+Shift+V
         let menu = TrayManager::build_menu(&config, Some(AppState::Idle)).unwrap();
 
         // Find Hotkey submenu
@@ -801,7 +801,7 @@ mod tests {
     #[test]
     #[ignore = "requires main thread for Menu creation on macOS"]
     fn test_build_menu_model_selection() {
-        let mut config = create_test_config();
+        let mut config = create_menu_test_config();
         config.model.name = "small".to_owned();
         let menu = TrayManager::build_menu(&config, Some(AppState::Idle)).unwrap();
 
@@ -834,7 +834,7 @@ mod tests {
     #[test]
     #[ignore = "requires main thread for Menu creation on macOS"]
     fn test_build_menu_threads_selection() {
-        let mut config = create_test_config();
+        let mut config = create_menu_test_config();
         config.model.threads = 6;
         let menu = TrayManager::build_menu(&config, Some(AppState::Idle)).unwrap();
 
@@ -877,7 +877,7 @@ mod tests {
     #[test]
     #[ignore = "requires main thread for Menu creation on macOS"]
     fn test_build_menu_beam_size_selection() {
-        let mut config = create_test_config();
+        let mut config = create_menu_test_config();
         config.model.beam_size = 10;
         let menu = TrayManager::build_menu(&config, Some(AppState::Idle)).unwrap();
 
@@ -921,7 +921,7 @@ mod tests {
     #[ignore = "requires main thread for Menu creation on macOS"]
     fn test_build_menu_language_selection() {
         // Test Auto-detect (None)
-        let config_auto = create_test_config();
+        let config_auto = create_menu_test_config();
         let menu_auto = TrayManager::build_menu(&config_auto, Some(AppState::Idle)).unwrap();
         let menu_auto_items = menu_auto.items();
         let lang_submenu_auto = menu_auto_items
@@ -936,7 +936,7 @@ mod tests {
         assert!(has_auto, "Auto-detect should be selected");
 
         // Test Polish (pl)
-        let mut config_polish = create_test_config();
+        let mut config_polish = create_menu_test_config();
         config_polish.model.language = Some("pl".to_owned());
         let menu_polish = TrayManager::build_menu(&config_polish, Some(AppState::Idle)).unwrap();
         let menu_polish_items = menu_polish.items();
@@ -972,7 +972,7 @@ mod tests {
     #[test]
     #[ignore = "requires main thread for Menu creation on macOS"]
     fn test_build_menu_buffer_size_selection() {
-        let mut config = create_test_config();
+        let mut config = create_menu_test_config();
         config.audio.buffer_size = 2048;
         let menu = TrayManager::build_menu(&config, Some(AppState::Idle)).unwrap();
 
@@ -1008,7 +1008,7 @@ mod tests {
     #[test]
     #[ignore = "requires main thread for Menu creation on macOS"]
     fn test_build_menu_preload_toggle_checked() {
-        let mut config = create_test_config();
+        let mut config = create_menu_test_config();
         config.model.preload = true;
         let menu = TrayManager::build_menu(&config, Some(AppState::Idle)).unwrap();
 
@@ -1028,7 +1028,7 @@ mod tests {
     #[test]
     #[ignore = "requires main thread for Menu creation on macOS"]
     fn test_build_menu_telemetry_toggle_unchecked() {
-        let config = create_test_config();
+        let config = create_menu_test_config();
         let menu = TrayManager::build_menu(&config, Some(AppState::Idle)).unwrap();
 
         // Find Telemetry CheckMenuItem
@@ -1092,7 +1092,7 @@ mod tests {
 
     #[test]
     fn test_is_hotkey_selected() {
-        let config = create_test_config(); // Command+Shift+V
+        let config = create_menu_test_config(); // Command+Shift+V
         assert!(TrayManager::is_hotkey_selected(
             &config,
             &["Command", "Shift"],
