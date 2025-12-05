@@ -592,7 +592,9 @@ mod tests {
     }
 
     fn create_test_config() -> Config {
-        use crate::config::{AudioConfig, HotkeyConfig, ModelConfig, TelemetryConfig};
+        use crate::config::{
+            AudioConfig, HotkeyConfig, ModelConfig, RecordingConfig, TelemetryConfig,
+        };
         Config {
             hotkey: HotkeyConfig {
                 modifiers: vec!["Control".to_owned(), "Option".to_owned()],
@@ -614,6 +616,7 @@ mod tests {
                 enabled: true,
                 log_path: "~/.whisper-hotkey/crash.log".to_owned(),
             },
+            recording: RecordingConfig::default(),
         }
     }
 

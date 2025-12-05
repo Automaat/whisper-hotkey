@@ -115,6 +115,7 @@ fn get_debug_dir() -> Result<PathBuf> {
 mod tests {
     use super::*;
     use std::fs;
+    use std::path::Path;
     use std::sync::Mutex;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -134,8 +135,8 @@ mod tests {
         test_dir
     }
 
-    fn create_recording(dir: &PathBuf, timestamp: u64) -> PathBuf {
-        let path = dir.join(format!("recording_{}.wav", timestamp));
+    fn create_recording(dir: &Path, timestamp: u64) -> PathBuf {
+        let path = dir.join(format!("recording_{timestamp}.wav"));
         fs::write(&path, b"fake wav data").unwrap();
         path
     }
@@ -228,7 +229,7 @@ mod tests {
         create_recording(&debug_dir, old_ts);
 
         // Create recent recording (1 day ago)
-        let recent_ts = now - (1 * 24 * 60 * 60);
+        let recent_ts = now - (24 * 60 * 60);
         create_recording(&debug_dir, recent_ts);
 
         let config = RecordingConfig {
@@ -242,9 +243,9 @@ mod tests {
         assert_eq!(deleted, 1);
 
         // Verify old file deleted, recent remains
-        assert!(!debug_dir.join(format!("recording_{}.wav", old_ts)).exists());
+        assert!(!debug_dir.join(format!("recording_{old_ts}.wav")).exists());
         assert!(debug_dir
-            .join(format!("recording_{}.wav", recent_ts))
+            .join(format!("recording_{recent_ts}.wav"))
             .exists());
 
         if let Some(home) = original_home {
