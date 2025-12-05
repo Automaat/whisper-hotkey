@@ -518,6 +518,118 @@ log_path = "/test/log.txt"
     }
 
     #[test]
+    fn test_old_config_path() {
+        let path = Config::old_config_path().unwrap();
+        assert!(path.to_string_lossy().contains(".whisper-hotkey.toml"));
+        assert!(!path.to_string_lossy().contains(".whisper-hotkey/"));
+    }
+
+    #[test]
+    fn test_create_default_creates_parent_directory() {
+        use std::env;
+
+        // Use temp directory to avoid interfering with actual config
+        let temp_base = env::temp_dir();
+        let test_dir = temp_base.join(format!(
+            "whisper_test_create_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+        ));
+
+        // Create a nested path that doesn't exist
+        let config_path = test_dir.join("nested").join("config.toml");
+
+        // Ensure parent doesn't exist yet
+        assert!(!config_path.parent().unwrap().exists());
+
+        // Create default config (should create parent directory)
+        Config::create_default(&config_path).unwrap();
+
+        // Verify parent directory was created
+        assert!(config_path.parent().unwrap().exists());
+
+        // Verify config file was created
+        assert!(config_path.exists());
+
+        // Verify it's valid TOML
+        let contents = fs::read_to_string(&config_path).unwrap();
+        let _: Config = toml::from_str(&contents).unwrap();
+
+        // Cleanup
+        let _ = fs::remove_dir_all(&test_dir);
+    }
+
+    #[test]
+    fn test_load_with_migration() {
+        use std::env;
+        use std::sync::Mutex;
+
+        // Use a mutex to prevent parallel test execution from interfering with HOME
+        static TEST_LOCK: Mutex<()> = Mutex::new(());
+        let _guard = TEST_LOCK.lock().unwrap();
+
+        // Create unique temp directory
+        let temp_base = env::temp_dir();
+        let test_home = temp_base.join(format!(
+            "whisper_test_load_migration_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+        ));
+        fs::create_dir_all(&test_home).unwrap();
+
+        // Save and set HOME
+        let original_home = env::var("HOME").ok();
+        env::set_var("HOME", test_home.to_str().unwrap());
+
+        // Create old config
+        let old_config_path = test_home.join(".whisper-hotkey.toml");
+        let old_config = r#"[hotkey]
+modifiers = ["Command"]
+key = "M"
+
+[audio]
+buffer_size = 512
+sample_rate = 16000
+
+[model]
+name = "tiny"
+path = "/tmp/tiny.bin"
+preload = true
+
+[telemetry]
+enabled = true
+log_path = "/tmp/test.log"
+"#;
+        fs::write(&old_config_path, old_config).unwrap();
+
+        // Load should trigger migration
+        let config = Config::load().unwrap();
+
+        // Verify migration occurred
+        let new_path = test_home.join(".whisper-hotkey/config.toml");
+        assert!(new_path.exists());
+        assert!(!old_config_path.exists());
+
+        // Verify config loaded correctly
+        assert_eq!(config.hotkey.key, "M");
+        assert_eq!(config.audio.buffer_size, 512);
+
+        // Restore HOME
+        if let Some(home) = original_home {
+            env::set_var("HOME", home);
+        } else {
+            env::remove_var("HOME");
+        }
+
+        // Cleanup
+        let _ = fs::remove_dir_all(&test_home);
+    }
+
+    #[test]
     fn test_parse_config_with_language() {
         let toml = r#"
 [hotkey]
