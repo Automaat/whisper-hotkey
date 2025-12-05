@@ -37,8 +37,9 @@ pub fn check_accessibility_permission() -> Result<()> {
         #[link(name = "ApplicationServices", kind = "framework")]
         extern "C" {
             fn AXIsProcessTrusted() -> bool;
-            fn AXIsProcessTrustedWithOptions(options: core_foundation::dictionary::CFDictionaryRef)
-                -> bool;
+            fn AXIsProcessTrustedWithOptions(
+                options: core_foundation::dictionary::CFDictionaryRef,
+            ) -> bool;
         }
 
         // First check if we already have permission
@@ -59,7 +60,8 @@ pub fn check_accessibility_permission() -> Result<()> {
 
         // Request permission with system dialog
         // SAFETY: AXIsProcessTrustedWithOptions is safe, shows system permission dialog
-        let is_trusted_after_prompt = unsafe { AXIsProcessTrustedWithOptions(options.as_concrete_TypeRef()) };
+        let is_trusted_after_prompt =
+            unsafe { AXIsProcessTrustedWithOptions(options.as_concrete_TypeRef()) };
 
         if !is_trusted_after_prompt {
             bail!(
