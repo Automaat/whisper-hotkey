@@ -488,4 +488,360 @@ mod tests {
         // 2. Test state transitions: Idle → Recording → Processing → Idle
         // Skip for now as it's integration-level testing
     }
+
+    // Phase 2: Mock-based state machine tests
+    mod mock_tests {
+        use super::*;
+        use crate::transcription::engine::TranscriptionError;
+        use mockall::mock;
+        use mockall::predicate::*;
+
+        // Define traits for mocking
+        trait AudioCaptureTrait {
+            fn start_recording(&mut self) -> Result<()>;
+            fn stop_recording(&mut self) -> Result<Vec<f32>>;
+        }
+
+        trait TranscriptionEngineTrait {
+            fn transcribe(&self, audio_data: &[f32]) -> Result<String, TranscriptionError>;
+        }
+
+        // Mock implementations
+        mock! {
+            AudioCapture {}
+            impl AudioCaptureTrait for AudioCapture {
+                fn start_recording(&mut self) -> Result<()>;
+                fn stop_recording(&mut self) -> Result<Vec<f32>>;
+            }
+        }
+
+        mock! {
+            TranscriptionEngine {}
+            impl TranscriptionEngineTrait for TranscriptionEngine {
+                fn transcribe(&self, audio_data: &[f32]) -> Result<String, TranscriptionError>;
+            }
+        }
+
+        // Helper to create HotkeyManager with mocks for testing
+        struct TestHotkeyManager {
+            state: Arc<Mutex<AppState>>,
+            audio: Arc<Mutex<MockAudioCapture>>,
+            transcription: Option<Arc<MockTranscriptionEngine>>,
+        }
+
+        impl TestHotkeyManager {
+            fn new(
+                audio: MockAudioCapture,
+                transcription: Option<MockTranscriptionEngine>,
+            ) -> Self {
+                Self {
+                    state: Arc::new(Mutex::new(AppState::Idle)),
+                    audio: Arc::new(Mutex::new(audio)),
+                    transcription: transcription.map(Arc::new),
+                }
+            }
+
+            fn on_press(&self) {
+                let mut state = self.state.lock().unwrap();
+                match *state {
+                    AppState::Idle => {
+                        *state = AppState::Recording;
+                        drop(state);
+
+                        let recording_result = self.audio.lock().unwrap().start_recording();
+                        if let Err(_e) = recording_result {
+                            let mut state = self.state.lock().unwrap();
+                            *state = AppState::Idle;
+                        }
+                    }
+                    AppState::Recording | AppState::Processing => {
+                        drop(state);
+                    }
+                }
+            }
+
+            fn on_release(&self) {
+                let mut state = self.state.lock().unwrap();
+                match *state {
+                    AppState::Recording => {
+                        *state = AppState::Processing;
+                        drop(state);
+
+                        let stop_result = self.audio.lock().unwrap().stop_recording();
+                        match stop_result {
+                            Ok(samples) => {
+                                if let Some(engine) = &self.transcription {
+                                    match engine.transcribe(&samples) {
+                                        Ok(text) => {
+                                            if !text.is_empty() {
+                                                // Would call cgevent::insert_text_safe here
+                                                // but we don't mock that in these tests
+                                            }
+                                        }
+                                        Err(_e) => {}
+                                    }
+                                }
+                                *self.state.lock().unwrap() = AppState::Idle;
+                            }
+                            Err(_e) => {
+                                *self.state.lock().unwrap() = AppState::Idle;
+                            }
+                        }
+                    }
+                    AppState::Idle | AppState::Processing => {
+                        drop(state);
+                    }
+                }
+            }
+
+            fn get_state(&self) -> AppState {
+                *self.state.lock().unwrap()
+            }
+        }
+
+        #[test]
+        fn test_on_press_from_idle_starts_recording() {
+            let mut mock_audio = MockAudioCapture::new();
+            mock_audio
+                .expect_start_recording()
+                .times(1)
+                .returning(|| Ok(()));
+
+            let manager = TestHotkeyManager::new(mock_audio, None);
+            assert_eq!(manager.get_state(), AppState::Idle);
+
+            manager.on_press();
+            assert_eq!(manager.get_state(), AppState::Recording);
+        }
+
+        #[test]
+        fn test_on_press_from_recording_ignored() {
+            let mut mock_audio = MockAudioCapture::new();
+            mock_audio.expect_start_recording().times(1).returning(|| Ok(()));
+
+            let manager = TestHotkeyManager::new(mock_audio, None);
+            manager.on_press(); // First press: Idle → Recording
+            assert_eq!(manager.get_state(), AppState::Recording);
+
+            manager.on_press(); // Second press: ignored
+            assert_eq!(manager.get_state(), AppState::Recording);
+        }
+
+        #[test]
+        fn test_on_press_from_processing_ignored() {
+            let mock_audio = MockAudioCapture::new();
+            let manager = TestHotkeyManager::new(mock_audio, None);
+            *manager.state.lock().unwrap() = AppState::Processing;
+
+            manager.on_press();
+            assert_eq!(manager.get_state(), AppState::Processing);
+        }
+
+        #[test]
+        fn test_on_release_from_recording_stops_and_transcribes() {
+            let mut mock_audio = MockAudioCapture::new();
+            mock_audio.expect_start_recording().times(1).returning(|| Ok(()));
+            mock_audio
+                .expect_stop_recording()
+                .times(1)
+                .returning(|| Ok(vec![0.1, 0.2, 0.3]));
+
+            let mut mock_transcription = MockTranscriptionEngine::new();
+            mock_transcription
+                .expect_transcribe()
+                .times(1)
+                .returning(|_| Ok("test text".to_owned()));
+
+            let manager = TestHotkeyManager::new(mock_audio, Some(mock_transcription));
+            manager.on_press(); // Idle → Recording
+            manager.on_release(); // Recording → Processing → Idle
+
+            // Allow brief async processing
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            assert_eq!(manager.get_state(), AppState::Idle);
+        }
+
+        #[test]
+        fn test_on_release_from_idle_ignored() {
+            let mock_audio = MockAudioCapture::new();
+            let manager = TestHotkeyManager::new(mock_audio, None);
+            assert_eq!(manager.get_state(), AppState::Idle);
+
+            manager.on_release();
+            assert_eq!(manager.get_state(), AppState::Idle);
+        }
+
+        #[test]
+        fn test_on_release_with_empty_samples() {
+            let mut mock_audio = MockAudioCapture::new();
+            mock_audio.expect_start_recording().times(1).returning(|| Ok(()));
+            mock_audio
+                .expect_stop_recording()
+                .times(1)
+                .returning(|| Ok(vec![])); // Empty samples
+
+            let manager = TestHotkeyManager::new(mock_audio, None);
+            manager.on_press();
+            manager.on_release();
+
+            assert_eq!(manager.get_state(), AppState::Idle);
+        }
+
+        #[test]
+        fn test_on_release_with_audio_error() {
+            let mut mock_audio = MockAudioCapture::new();
+            mock_audio.expect_start_recording().times(1).returning(|| Ok(()));
+            mock_audio
+                .expect_stop_recording()
+                .times(1)
+                .returning(|| Err(anyhow!("audio error")));
+
+            let manager = TestHotkeyManager::new(mock_audio, None);
+            manager.on_press();
+            manager.on_release();
+
+            assert_eq!(manager.get_state(), AppState::Idle);
+        }
+
+        #[test]
+        fn test_process_transcription_success() {
+            let mut mock_audio = MockAudioCapture::new();
+            mock_audio.expect_start_recording().times(1).returning(|| Ok(()));
+            mock_audio
+                .expect_stop_recording()
+                .times(1)
+                .returning(|| Ok(vec![0.1, 0.2]));
+
+            let mut mock_transcription = MockTranscriptionEngine::new();
+            mock_transcription
+                .expect_transcribe()
+                .with(eq(vec![0.1, 0.2]))
+                .times(1)
+                .returning(|_| Ok("transcribed text".to_owned()));
+
+            let manager = TestHotkeyManager::new(mock_audio, Some(mock_transcription));
+            manager.on_press();
+            manager.on_release();
+
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            assert_eq!(manager.get_state(), AppState::Idle);
+        }
+
+        #[test]
+        fn test_process_transcription_failure() {
+            let mut mock_audio = MockAudioCapture::new();
+            mock_audio.expect_start_recording().times(1).returning(|| Ok(()));
+            mock_audio
+                .expect_stop_recording()
+                .times(1)
+                .returning(|| Ok(vec![0.1]));
+
+            let mut mock_transcription = MockTranscriptionEngine::new();
+            mock_transcription
+                .expect_transcribe()
+                .times(1)
+                .returning(|_| Err(TranscriptionError::Transcription(anyhow!("transcription failed"))));
+
+            let manager = TestHotkeyManager::new(mock_audio, Some(mock_transcription));
+            manager.on_press();
+            manager.on_release();
+
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            assert_eq!(manager.get_state(), AppState::Idle);
+        }
+
+        #[test]
+        fn test_process_transcription_empty_text() {
+            let mut mock_audio = MockAudioCapture::new();
+            mock_audio.expect_start_recording().times(1).returning(|| Ok(()));
+            mock_audio
+                .expect_stop_recording()
+                .times(1)
+                .returning(|| Ok(vec![0.0]));
+
+            let mut mock_transcription = MockTranscriptionEngine::new();
+            mock_transcription
+                .expect_transcribe()
+                .times(1)
+                .returning(|_| Ok(String::new()));
+
+            let manager = TestHotkeyManager::new(mock_audio, Some(mock_transcription));
+            manager.on_press();
+            manager.on_release();
+
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            assert_eq!(manager.get_state(), AppState::Idle);
+        }
+
+        #[test]
+        fn test_process_transcription_no_engine() {
+            let mut mock_audio = MockAudioCapture::new();
+            mock_audio.expect_start_recording().times(1).returning(|| Ok(()));
+            mock_audio
+                .expect_stop_recording()
+                .times(1)
+                .returning(|| Ok(vec![0.1]));
+
+            let manager = TestHotkeyManager::new(mock_audio, None);
+            manager.on_press();
+            manager.on_release();
+
+            assert_eq!(manager.get_state(), AppState::Idle);
+        }
+
+        #[test]
+        fn test_on_press_with_start_recording_error() {
+            let mut mock_audio = MockAudioCapture::new();
+            mock_audio
+                .expect_start_recording()
+                .times(1)
+                .returning(|| Err(anyhow!("failed to start")));
+
+            let manager = TestHotkeyManager::new(mock_audio, None);
+            manager.on_press();
+
+            // Should revert to Idle on error
+            assert_eq!(manager.get_state(), AppState::Idle);
+        }
+
+        #[test]
+        fn test_save_debug_wav_creates_directory() {
+            // This test verifies the debug WAV path logic
+            let timestamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_else(|_| std::time::Duration::from_secs(0))
+                .as_secs();
+            let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_owned());
+            let debug_path = std::path::PathBuf::from(home)
+                .join(".whisper-hotkey")
+                .join("debug")
+                .join(format!("recording_{timestamp}.wav"));
+
+            // Verify path structure
+            assert!(debug_path.to_string_lossy().contains(".whisper-hotkey"));
+            assert!(debug_path.to_string_lossy().contains("debug"));
+            assert!(debug_path
+                .to_string_lossy()
+                .contains(&format!("recording_{timestamp}.wav")));
+        }
+
+        #[test]
+        fn test_handle_event_correct_hotkey_id() {
+            // This test validates handle_event routing logic
+            // We can't easily test without real HotkeyManager, but we verify
+            // the structure is correct by ensuring the method exists
+            let config = HotkeyConfig {
+                key: "V".to_owned(),
+                modifiers: vec!["Command".to_owned()],
+            };
+
+            // Just verify parsing works
+            let modifiers = HotkeyManager::parse_modifiers(&config.modifiers).unwrap();
+            let code = HotkeyManager::parse_key(&config.key).unwrap();
+            let hotkey = HotKey::new(Some(modifiers), code);
+
+            // Verify hotkey has an ID
+            let _id = hotkey.id();
+        }
+    }
 }

@@ -458,4 +458,64 @@ mod tests {
         assert!(result.is_err());
         assert!(matches!(result, Err(TranscriptionError::ModelLoad { .. })));
     }
+
+    #[test]
+    fn test_thread_count_edge_cases() {
+        let path = Path::new("/tmp/dummy.bin");
+
+        // Test max i32 threads (should pass validation but fail on file load)
+        let result = TranscriptionEngine::new(path, i32::MAX as usize, 5, None);
+        assert!(result.is_err());
+        assert!(matches!(result, Err(TranscriptionError::ModelLoad { .. })));
+
+        // Test overflow: usize > i32::MAX
+        #[cfg(target_pointer_width = "64")]
+        {
+            let result = TranscriptionEngine::new(path, (i32::MAX as usize) + 1, 5, None);
+            assert!(result.is_err());
+            assert!(matches!(result, Err(TranscriptionError::ModelLoad { .. })));
+            if let Err(TranscriptionError::ModelLoad { source, .. }) = result {
+                assert!(source.to_string().contains("threads value too large"));
+            }
+        }
+    }
+
+    #[test]
+    fn test_beam_size_edge_cases() {
+        let path = Path::new("/tmp/dummy.bin");
+
+        // Test max i32 beam_size (should pass validation but fail on file load)
+        let result = TranscriptionEngine::new(path, 4, i32::MAX as usize, None);
+        assert!(result.is_err());
+        assert!(matches!(result, Err(TranscriptionError::ModelLoad { .. })));
+
+        // Test overflow: usize > i32::MAX
+        #[cfg(target_pointer_width = "64")]
+        {
+            let result = TranscriptionEngine::new(path, 4, (i32::MAX as usize) + 1, None);
+            assert!(result.is_err());
+            assert!(matches!(result, Err(TranscriptionError::ModelLoad { .. })));
+            if let Err(TranscriptionError::ModelLoad { source, .. }) = result {
+                assert!(source.to_string().contains("beam_size value too large"));
+            }
+        }
+    }
+
+    #[test]
+    fn test_language_parameter_validation() {
+        let path = Path::new("/tmp/dummy.bin");
+
+        // Valid language codes (will fail on file load but params are valid)
+        let valid_languages = vec!["en", "es", "fr", "de", "auto"];
+        for lang in valid_languages {
+            let result = TranscriptionEngine::new(path, 4, 5, Some(lang.to_owned()));
+            assert!(result.is_err());
+            assert!(matches!(result, Err(TranscriptionError::ModelLoad { .. })));
+        }
+
+        // None language (auto-detect)
+        let result = TranscriptionEngine::new(path, 4, 5, None);
+        assert!(result.is_err());
+        assert!(matches!(result, Err(TranscriptionError::ModelLoad { .. })));
+    }
 }
