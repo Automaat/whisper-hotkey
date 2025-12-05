@@ -198,10 +198,49 @@ mod tests {
 
     #[test]
     #[cfg(target_os = "macos")]
-    fn test_accessibility_permission_function_exists() {
-        // Verify function compiles and has correct signature
+    fn test_accessibility_permission_function_signature() {
+        // Compile-time check that function has correct signature
         // Actual permission testing requires manual testing with #[ignore] test
-        let _f: fn() -> Result<()> = check_accessibility_permission;
+        let _: fn() -> Result<()> = check_accessibility_permission;
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn test_accessibility_permission_denied_error_message() {
+        // Test that function returns appropriate error when permission denied
+        // This test is expected to fail in CI where permissions aren't granted
+        let result = check_accessibility_permission();
+
+        // If permission is denied, verify error message contains expected guidance
+        if let Err(e) = result {
+            let error_msg = e.to_string();
+            assert!(error_msg.contains("Accessibility permission required"));
+            assert!(error_msg.contains("System Settings"));
+        }
+        // If permission is granted (e.g., on developer machine), that's also fine
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn test_input_monitoring_permission_denied_error_message() {
+        // Test that function returns appropriate error when permission denied
+        let result = check_input_monitoring_permission();
+
+        // If permission is denied, verify error message contains expected guidance
+        if let Err(e) = result {
+            let error_msg = e.to_string();
+            assert!(error_msg.contains("Input Monitoring") || error_msg.contains("CGEvent"));
+            assert!(error_msg.contains("System Settings"));
+        }
+        // If permission is granted (e.g., on developer machine), that's also fine
+    }
+
+    #[test]
+    fn test_microphone_permission_always_succeeds() {
+        // Microphone permission is deferred to first audio capture
+        // This function should always succeed
+        let result = check_microphone_permission();
+        assert!(result.is_ok());
     }
 
     #[test]
