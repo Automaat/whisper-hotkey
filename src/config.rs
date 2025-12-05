@@ -17,6 +17,9 @@ pub struct Config {
     pub model: ModelConfig,
     /// Telemetry configuration
     pub telemetry: TelemetryConfig,
+    /// Recording configuration
+    #[serde(default)]
+    pub recording: RecordingConfig,
 }
 
 /// Hotkey configuration
@@ -83,6 +86,50 @@ pub struct TelemetryConfig {
     pub enabled: bool,
     /// Path to log file
     pub log_path: String,
+}
+
+/// Recording configuration
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct RecordingConfig {
+    /// Enable debug recordings
+    #[serde(default = "default_recording_enabled")]
+    pub enabled: bool,
+    /// Delete recordings older than N days (0 = keep all)
+    #[serde(default = "default_retention_days")]
+    pub retention_days: u32,
+    /// Keep only N most recent recordings (0 = unlimited)
+    #[serde(default = "default_max_count")]
+    pub max_count: usize,
+    /// Hours between cleanup runs (0 = startup only)
+    #[serde(default = "default_cleanup_interval_hours")]
+    pub cleanup_interval_hours: u32,
+}
+
+const fn default_recording_enabled() -> bool {
+    true
+}
+
+const fn default_retention_days() -> u32 {
+    7
+}
+
+const fn default_max_count() -> usize {
+    100
+}
+
+const fn default_cleanup_interval_hours() -> u32 {
+    1
+}
+
+impl Default for RecordingConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_recording_enabled(),
+            retention_days: default_retention_days(),
+            max_count: default_max_count(),
+            cleanup_interval_hours: default_cleanup_interval_hours(),
+        }
+    }
 }
 
 impl Config {
@@ -162,6 +209,12 @@ beam_size = 5      # Beam search size (higher = more accurate but slower)
 [telemetry]
 enabled = true
 log_path = "~/.whisper-hotkey/crash.log"
+
+[recording]
+enabled = true                  # Save debug recordings to ~/.whisper-hotkey/debug/
+retention_days = 7              # Delete recordings older than N days (0 = keep all)
+max_count = 100                 # Keep only N most recent recordings (0 = unlimited)
+cleanup_interval_hours = 1      # Hours between cleanup runs (0 = startup only)
 "#;
         fs::write(path, default_config).context("failed to write default config")?;
         Ok(())
@@ -465,6 +518,7 @@ log_path = "/test/log.txt"
                 enabled: true,
                 log_path: "~/.whisper-hotkey/crash.log".to_owned(),
             },
+            recording: RecordingConfig::default(),
         };
 
         let serialized = toml::to_string(&config).unwrap();
@@ -497,6 +551,7 @@ log_path = "/test/log.txt"
                 enabled: false,
                 log_path: "/tmp/log.txt".to_owned(),
             },
+            recording: RecordingConfig::default(),
         };
 
         let serialized = toml::to_string(&original).unwrap();
@@ -780,6 +835,7 @@ log_path = "/custom/log.txt"
                 enabled: true,
                 log_path: "/test/log.txt".to_owned(),
             },
+            recording: RecordingConfig::default(),
         };
 
         config.save().unwrap();
@@ -825,5 +881,172 @@ log_path = "/tmp/crash.log"
 "#;
         let config: Config = toml::from_str(toml).unwrap();
         assert_eq!(config.model.language, Some("en".to_owned()));
+    }
+
+    #[test]
+    fn test_recording_config_defaults() {
+        let config = RecordingConfig::default();
+        assert!(config.enabled);
+        assert_eq!(config.retention_days, 7);
+        assert_eq!(config.max_count, 100);
+        assert_eq!(config.cleanup_interval_hours, 1);
+    }
+
+    #[test]
+    fn test_parse_config_with_recording() {
+        let toml = r#"
+[hotkey]
+modifiers = ["Control"]
+key = "M"
+
+[audio]
+buffer_size = 512
+sample_rate = 16000
+
+[model]
+name = "tiny"
+path = "/tmp/tiny.bin"
+preload = true
+
+[telemetry]
+enabled = true
+log_path = "/tmp/crash.log"
+
+[recording]
+enabled = true
+retention_days = 7
+max_count = 100
+cleanup_interval_hours = 1
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert!(config.recording.enabled);
+        assert_eq!(config.recording.retention_days, 7);
+        assert_eq!(config.recording.max_count, 100);
+        assert_eq!(config.recording.cleanup_interval_hours, 1);
+    }
+
+    #[test]
+    fn test_parse_config_without_recording() {
+        let toml = r#"
+[hotkey]
+modifiers = ["Control"]
+key = "M"
+
+[audio]
+buffer_size = 512
+sample_rate = 16000
+
+[model]
+name = "tiny"
+path = "/tmp/tiny.bin"
+preload = true
+
+[telemetry]
+enabled = true
+log_path = "/tmp/crash.log"
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        // Should use defaults when section missing
+        assert!(config.recording.enabled);
+        assert_eq!(config.recording.retention_days, 7);
+        assert_eq!(config.recording.max_count, 100);
+        assert_eq!(config.recording.cleanup_interval_hours, 1);
+    }
+
+    #[test]
+    fn test_parse_config_with_custom_recording() {
+        let toml = r#"
+[hotkey]
+modifiers = ["Control"]
+key = "M"
+
+[audio]
+buffer_size = 512
+sample_rate = 16000
+
+[model]
+name = "tiny"
+path = "/tmp/tiny.bin"
+preload = true
+
+[telemetry]
+enabled = true
+log_path = "/tmp/crash.log"
+
+[recording]
+enabled = false
+retention_days = 30
+max_count = 500
+cleanup_interval_hours = 24
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert!(!config.recording.enabled);
+        assert_eq!(config.recording.retention_days, 30);
+        assert_eq!(config.recording.max_count, 500);
+        assert_eq!(config.recording.cleanup_interval_hours, 24);
+    }
+
+    #[test]
+    fn test_parse_config_with_partial_recording() {
+        let toml = r#"
+[hotkey]
+modifiers = ["Control"]
+key = "M"
+
+[audio]
+buffer_size = 512
+sample_rate = 16000
+
+[model]
+name = "tiny"
+path = "/tmp/tiny.bin"
+preload = true
+
+[telemetry]
+enabled = true
+log_path = "/tmp/crash.log"
+
+[recording]
+retention_days = 14
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        // Should use defaults for unspecified fields
+        assert!(config.recording.enabled);
+        assert_eq!(config.recording.retention_days, 14);
+        assert_eq!(config.recording.max_count, 100);
+        assert_eq!(config.recording.cleanup_interval_hours, 1);
+    }
+
+    #[test]
+    fn test_recording_config_zero_values() {
+        let toml = r#"
+[hotkey]
+modifiers = ["Control"]
+key = "M"
+
+[audio]
+buffer_size = 512
+sample_rate = 16000
+
+[model]
+name = "tiny"
+path = "/tmp/tiny.bin"
+preload = true
+
+[telemetry]
+enabled = true
+log_path = "/tmp/crash.log"
+
+[recording]
+enabled = true
+retention_days = 0
+max_count = 0
+cleanup_interval_hours = 0
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert!(config.recording.enabled);
+        assert_eq!(config.recording.retention_days, 0);
+        assert_eq!(config.recording.max_count, 0);
+        assert_eq!(config.recording.cleanup_interval_hours, 0);
     }
 }

@@ -21,6 +21,7 @@ mod audio;
 mod config;
 mod input;
 mod permissions;
+mod recording_cleanup;
 mod telemetry;
 mod transcription;
 mod tray;
@@ -52,6 +53,18 @@ async fn main() -> Result<()> {
         .context("failed to initialize telemetry")?;
     tracing::info!("whisper-hotkey starting");
     println!("✓ Telemetry initialized");
+
+    // Cleanup old recordings
+    match recording_cleanup::cleanup_old_recordings(&config.recording) {
+        Ok(deleted) => {
+            if deleted > 0 {
+                tracing::debug!("startup cleanup: deleted {} old recordings", deleted);
+            }
+        }
+        Err(e) => {
+            tracing::warn!("failed to cleanup old recordings: {}", e);
+        }
+    }
 
     // Request permissions
     permissions::request_all_permissions().context("permission check failed")?;
@@ -123,6 +136,7 @@ async fn main() -> Result<()> {
         &config.hotkey,
         Arc::clone(&audio_capture),
         transcription_engine.clone(),
+        config.recording.enabled,
     )
     .context("failed to register global hotkey")?;
     println!(
@@ -158,6 +172,36 @@ async fn main() -> Result<()> {
 
     let receiver = GlobalHotKeyEvent::receiver();
     let mut config = config; // Make config mutable for updates
+
+    // Spawn periodic cleanup task if enabled
+    if config.recording.cleanup_interval_hours > 0 {
+        let recording_config = config.recording.clone();
+        tokio::spawn(async move {
+            let interval_secs = u64::from(recording_config.cleanup_interval_hours) * 3600;
+            let mut interval =
+                tokio::time::interval(tokio::time::Duration::from_secs(interval_secs));
+            interval.tick().await; // Skip first immediate tick
+
+            loop {
+                interval.tick().await;
+                tracing::debug!("running periodic recording cleanup");
+                match recording_cleanup::cleanup_old_recordings(&recording_config) {
+                    Ok(deleted) => {
+                        if deleted > 0 {
+                            tracing::debug!("periodic cleanup: deleted {} old recordings", deleted);
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!("periodic cleanup failed: {}", e);
+                    }
+                }
+            }
+        });
+        tracing::debug!(
+            "periodic cleanup task spawned (interval: {} hours)",
+            config.recording.cleanup_interval_hours
+        );
+    }
 
     // Helper to save config, log, and update menu after config changes
     fn save_and_update(

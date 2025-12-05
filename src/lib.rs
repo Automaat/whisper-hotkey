@@ -10,6 +10,8 @@ pub mod config;
 pub mod input;
 /// macOS permission checks
 pub mod permissions;
+/// Recording cleanup and retention
+pub mod recording_cleanup;
 /// Telemetry and crash logging
 pub mod telemetry;
 /// Whisper transcription engine
