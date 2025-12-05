@@ -4,6 +4,23 @@ use std::sync::{Arc, Mutex};
 use thiserror::Error;
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
+/// Trait for transcription operations (enables testing via mocking)
+///
+/// This trait abstracts transcription functionality to enable dependency injection
+/// and mock-based testing in components like the hotkey state machine.
+///
+/// Production code should use the concrete [`TranscriptionEngine`] type directly.
+/// Use this trait for testing with `MockTranscriptionInterface` (via `mockall`).
+#[cfg_attr(test, mockall::automock)]
+#[allow(dead_code)] // Prepared for future hotkey.rs state machine tests
+trait TranscriptionInterface: Send + Sync {
+    /// Transcribe audio samples to text
+    ///
+    /// # Errors
+    /// Returns error if Whisper inference fails
+    fn transcribe(&self, audio_data: &[f32]) -> Result<String, TranscriptionError>;
+}
+
 /// Errors that can occur during transcription
 #[derive(Debug, Error)]
 pub enum TranscriptionError {
@@ -119,12 +136,21 @@ impl TranscriptionEngine {
         })
     }
 
-    /// Transcribes audio samples (16kHz mono f32) to text with language auto-detection
+    /// Transcribes audio samples (public interface)
     ///
     /// # Errors
     /// Returns error if Whisper inference fails or mutex is poisoned
     #[allow(dead_code)] // Used in Phase 5
     pub fn transcribe(&self, audio_data: &[f32]) -> Result<String, TranscriptionError> {
+        self.transcribe_impl(audio_data)
+    }
+
+    /// Transcribes audio samples (16kHz mono f32) to text with language auto-detection
+    ///
+    /// # Errors
+    /// Returns error if Whisper inference fails or mutex is poisoned
+    #[allow(dead_code)] // Used in Phase 5
+    fn transcribe_impl(&self, audio_data: &[f32]) -> Result<String, TranscriptionError> {
         let _span = tracing::debug_span!("transcription", samples = audio_data.len()).entered();
         tracing::debug!("starting transcription");
 
@@ -171,6 +197,13 @@ impl TranscriptionEngine {
         );
 
         Ok(result)
+    }
+}
+
+/// Implement trait for real `TranscriptionEngine`
+impl TranscriptionInterface for TranscriptionEngine {
+    fn transcribe(&self, audio_data: &[f32]) -> Result<String, TranscriptionError> {
+        self.transcribe_impl(audio_data)
     }
 }
 

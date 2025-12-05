@@ -3,6 +3,26 @@ use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
 use thiserror::Error;
 use tracing::{debug, error, info};
 
+/// Generate preview of text for logging (pure, testable)
+///
+/// Truncates text >50 chars with "..." suffix. Respects UTF-8 char boundaries.
+#[must_use]
+pub fn generate_text_preview(text: &str) -> String {
+    if text.len() > 50 {
+        // Find char boundary at or before byte 47
+        let mut end = 47.min(text.len());
+        while end > 0 && !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        if end == 0 {
+            return "...".to_owned();
+        }
+        format!("{}...", &text[..end])
+    } else {
+        text.to_owned()
+    }
+}
+
 /// Text insertion errors
 #[derive(Debug, Error)]
 pub enum TextInsertionError {
@@ -45,11 +65,7 @@ pub fn insert_text(text: &str) -> Result<(), TextInsertionError> {
         return Err(TextInsertionError::EmptyText);
     }
 
-    let preview = if text.len() > 50 {
-        format!("{}...", &text[..47])
-    } else {
-        text.to_owned()
-    };
+    let preview = generate_text_preview(text);
 
     info!(
         text_len = text.len(),
@@ -93,7 +109,7 @@ pub fn insert_text(text: &str) -> Result<(), TextInsertionError> {
 
     info!(
         text_len = text.len(),
-        text_preview = %preview,
+        text_preview = %generate_text_preview(text),
         "✓ CGEvent posted to HID - text should appear at cursor"
     );
     debug!(
@@ -120,6 +136,55 @@ pub fn insert_text_safe(text: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_generate_text_preview_short() {
+        assert_eq!(generate_text_preview("hello"), "hello");
+        assert_eq!(generate_text_preview("12345"), "12345");
+    }
+
+    #[test]
+    fn test_generate_text_preview_exactly_50_chars() {
+        let text_50 = "a".repeat(50);
+        assert_eq!(generate_text_preview(&text_50), text_50);
+    }
+
+    #[test]
+    fn test_generate_text_preview_long() {
+        let text_100 = "a".repeat(100);
+        let preview = generate_text_preview(&text_100);
+        assert!(preview.len() <= 50); // 47 or fewer chars + "..."
+        assert!(preview.ends_with("..."));
+        assert!(preview.len() >= 3); // At least "..."
+        assert!(preview.starts_with(&text_100[..preview.len() - 3]));
+    }
+
+    #[test]
+    fn test_generate_text_preview_empty() {
+        assert_eq!(generate_text_preview(""), "");
+    }
+
+    #[test]
+    fn test_generate_text_preview_exactly_51_chars() {
+        let text_51 = "a".repeat(51);
+        let preview = generate_text_preview(&text_51);
+        assert!(preview.len() <= 50);
+        assert!(preview.ends_with("..."));
+    }
+
+    #[test]
+    fn test_generate_text_preview_unicode() {
+        // Short unicode should not be truncated
+        let short_unicode = "Hello 👋";
+        assert_eq!(generate_text_preview(short_unicode), short_unicode);
+
+        // Long unicode should be truncated
+        let long_unicode = "👋".repeat(30); // Each emoji is 4 bytes
+        let preview = generate_text_preview(&long_unicode);
+        assert!(preview.ends_with("..."));
+        assert!(preview.len() <= 54); // Adjusted char boundary + "..."
+        assert!(preview.len() < long_unicode.len()); // Should be shorter than original
+    }
 
     #[test]
     fn test_insert_text_empty() {
