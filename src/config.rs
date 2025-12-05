@@ -152,11 +152,12 @@ const fn default_threads() -> usize {
 }
 
 const fn default_beam_size() -> usize {
-    5 // Balance speed/accuracy
+    1 // Greedy decoding (fast)
 }
 
-const fn default_language() -> Option<String> {
-    None // Auto-detect by default
+#[allow(clippy::unnecessary_wraps)]
+fn default_language() -> Option<String> {
+    Some("en".to_owned()) // English by default (skips auto-detect overhead)
 }
 
 impl ModelConfig {
@@ -299,11 +300,11 @@ buffer_size = 1024
 sample_rate = 16000
 
 [model]
-model_type = "Small"
+model_type = "BaseEn"
 preload = true
 threads = 4        # CPU threads for inference (4 optimal for M1/M2)
-beam_size = 5      # Beam search size (higher = more accurate but slower)
-# language = "pl"  # Language hint: "en", "pl", "es", etc. Omit for auto-detect
+beam_size = 1      # Beam search size (1 = greedy/fast, higher = more accurate but slower)
+language = "en"    # Language hint: "en", "pl", "es", etc. Omit for auto-detect
 
 [telemetry]
 enabled = true
