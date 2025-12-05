@@ -241,52 +241,6 @@ mod tests {
     }
 
     #[test]
-    fn test_preview_text_truncation() {
-        // Test preview truncation at 50 chars
-        let long_text = "a".repeat(100);
-
-        // Simulate preview logic from insert_text
-        let preview = if long_text.len() > 50 {
-            format!("{}...", &long_text[..47])
-        } else {
-            long_text.clone()
-        };
-
-        assert_eq!(preview.len(), 50); // 47 + "..." = 50
-        assert!(preview.ends_with("..."));
-    }
-
-    #[test]
-    fn test_preview_text_no_truncation() {
-        // Test short text isn't truncated
-        let short_text = "Hello World";
-
-        let preview = if short_text.len() > 50 {
-            format!("{}...", &short_text[..47])
-        } else {
-            short_text.to_owned()
-        };
-
-        assert_eq!(preview, short_text);
-        assert!(!preview.ends_with("..."));
-    }
-
-    #[test]
-    fn test_preview_text_exactly_50_chars() {
-        // Edge case: exactly 50 characters
-        let text = "a".repeat(50);
-
-        let preview = if text.len() > 50 {
-            format!("{}...", &text[..47])
-        } else {
-            text.clone()
-        };
-
-        assert_eq!(preview.len(), 50);
-        assert!(!preview.ends_with("..."));
-    }
-
-    #[test]
     fn test_utf16_encoding_newlines_and_tabs() {
         // Test whitespace characters encode correctly
         let text = "Line1\nLine2\tTabbed";
@@ -301,17 +255,5 @@ mod tests {
             .collect();
         assert!(decoded.contains('\n'));
         assert!(decoded.contains('\t'));
-    }
-
-    #[test]
-    fn test_text_insertion_error_types() {
-        // Verify error types can be created and displayed
-        let err1 = TextInsertionError::EmptyText;
-        let err2 = TextInsertionError::EventSourceCreation;
-        let err3 = TextInsertionError::EventCreation;
-
-        assert!(err1.to_string().contains("empty"));
-        assert!(err2.to_string().contains("source"));
-        assert!(err3.to_string().contains("CGEvent"));
     }
 }

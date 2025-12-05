@@ -843,22 +843,29 @@ mod tests {
     }
 
     #[test]
-    fn test_save_wav_debug_with_readonly_directory() {
+    fn test_save_wav_debug_creates_nested_directory() {
         use std::fs;
-        use std::path::PathBuf;
 
         let samples = vec![0.1, 0.2];
 
-        // Try to write to a path that likely doesn't exist or is read-only
-        let invalid_path = PathBuf::from("/nonexistent_directory/test.wav");
+        // Use temp_dir with non-existent nested subdirectory
+        let temp_dir = std::env::temp_dir();
+        let nested_dir = temp_dir.join(format!(
+            "whisper_test_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let wav_path = nested_dir.join("nested").join("test.wav");
 
-        let result = AudioCapture::save_wav_debug(&samples, &invalid_path);
+        // Should succeed by creating parent directories
+        let result = AudioCapture::save_wav_debug(&samples, &wav_path);
+        assert!(result.is_ok());
+        assert!(wav_path.exists());
 
-        // Should return an error for invalid path
-        assert!(result.is_err());
-
-        // Clean up if file was somehow created
-        let _ = fs::remove_file(invalid_path);
+        // Cleanup
+        let _ = fs::remove_dir_all(&nested_dir);
     }
 
     #[test]

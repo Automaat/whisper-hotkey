@@ -209,6 +209,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires network access"]
     fn test_download_model_error_handling() {
         let temp_dir = std::env::temp_dir();
         let model_path = temp_dir.join("test_error_model.bin");
@@ -257,13 +258,5 @@ mod tests {
 
         // Cleanup
         fs::remove_file(model_path).unwrap();
-    }
-
-    #[test]
-    fn test_download_model_temp_file_extension() {
-        // Verify temp file path has .tmp extension
-        let model_path = Path::new("/tmp/test_model.bin");
-        let temp_path = model_path.with_extension("tmp");
-        assert_eq!(temp_path, Path::new("/tmp/test_model.tmp"));
     }
 }

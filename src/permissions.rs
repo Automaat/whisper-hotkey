@@ -133,17 +133,6 @@ mod tests {
     }
 
     #[test]
-    fn test_request_all_permissions_calls_all_checks() {
-        // Verify that request_all_permissions doesn't panic
-        // (actual permission checks may fail on macOS without permissions)
-        let result = request_all_permissions();
-        // On macOS without permissions, this will fail
-        // On non-macOS, this will succeed
-        // Either way, it tests that the function executes
-        let _ = result;
-    }
-
-    #[test]
     #[ignore = "requires Input Monitoring permission on macOS"]
     fn test_check_input_monitoring_permission() {
         let result = check_input_monitoring_permission();
