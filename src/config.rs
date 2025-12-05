@@ -367,11 +367,13 @@ log_path = "/tmp/crash.log"
 
         // Create unique temp directory for this test
         let temp_base = env::temp_dir();
-        let test_home = temp_base.join(format!("whisper_test_migration_{}",
+        let test_home = temp_base.join(format!(
+            "whisper_test_migration_{}",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
-                .as_secs()));
+                .as_secs()
+        ));
         fs::create_dir_all(&test_home).unwrap();
 
         // Save original HOME and set to temp directory
@@ -502,13 +504,17 @@ log_path = "/test/log.txt"
     #[test]
     fn test_config_path() {
         let path = Config::config_path().unwrap();
-        assert!(path.to_string_lossy().contains(".whisper-hotkey/config.toml"));
+        assert!(path
+            .to_string_lossy()
+            .contains(".whisper-hotkey/config.toml"));
     }
 
     #[test]
     fn test_get_config_path() {
         let path = Config::get_config_path().unwrap();
-        assert!(path.to_string_lossy().contains(".whisper-hotkey/config.toml"));
+        assert!(path
+            .to_string_lossy()
+            .contains(".whisper-hotkey/config.toml"));
     }
 
     #[test]
