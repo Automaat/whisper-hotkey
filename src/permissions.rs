@@ -45,6 +45,7 @@ pub fn check_accessibility_permission() -> Result<()> {
 
         // First check if we already have permission
         // SAFETY: AXIsProcessTrusted is a safe macOS API that only reads permission status
+        #[allow(unsafe_code)]
         let is_trusted = unsafe { AXIsProcessTrusted() };
 
         if is_trusted {
@@ -62,6 +63,7 @@ pub fn check_accessibility_permission() -> Result<()> {
         // Show system dialog directing user to System Settings
         // SAFETY: AXIsProcessTrustedWithOptions is safe, shows system permission dialog
         // Note: This returns immediately with current status (false), before user can grant permission
+        #[allow(unsafe_code)]
         let _ = unsafe { AXIsProcessTrustedWithOptions(options.as_concrete_TypeRef()) };
 
         // Always exit with instructions after showing dialog
@@ -184,6 +186,22 @@ mod tests {
     fn test_check_accessibility_permission() {
         let result = check_accessibility_permission();
         assert!(result.is_ok());
+    }
+
+    #[test]
+    #[cfg(not(target_os = "macos"))]
+    fn test_check_accessibility_permission_non_macos() {
+        // On non-macOS platforms, function should always succeed
+        let result = check_accessibility_permission();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn test_accessibility_permission_function_exists() {
+        // Verify function compiles and has correct signature
+        // Actual permission testing requires manual testing with #[ignore] test
+        let _f: fn() -> Result<()> = check_accessibility_permission;
     }
 
     #[test]
