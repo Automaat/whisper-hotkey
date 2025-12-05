@@ -79,10 +79,10 @@ async fn main() -> Result<()> {
     println!("✓ Permissions OK");
 
     // Phase 4: Whisper model setup
-    let model_path = config::Config::expand_path(&config.model.effective_path())
+    let model_path = config::Config::expand_path(&config.model.model_type.model_path())
         .context("failed to expand model path")?;
     let downloaded =
-        transcription::ensure_model_downloaded(&config.model.effective_name(), &model_path)
+        transcription::ensure_model_downloaded(config.model.model_type.model_name(), &model_path)
             .context("failed to download/verify Whisper model")?;
     if downloaded {
         println!("✓ Model downloaded to {}", model_path.display());
@@ -290,7 +290,7 @@ async fn main() -> Result<()> {
                     }
                 }
                 tray::TrayCommand::UpdateModel { model_type } => {
-                    config.model.model_type = Some(model_type);
+                    config.model.model_type = model_type;
                     if let Err(e) = save_and_update(&config, &tray_manager, "Model updated", true) {
                         tracing::error!("failed to update config: {:?}", e);
                         println!("⚠ Failed to save config: {}", e);

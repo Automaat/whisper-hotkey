@@ -146,8 +146,7 @@ buffer_size = 1024                  # frames (leave default)
 sample_rate = 16000                 # Hz (leave default)
 
 [model]
-name = "small"                      # tiny, base, small, medium, large
-path = "~/.whisper-hotkey/models/ggml-small.bin"
+model_type = "small"                # tiny, base, small, medium, large, tiny.en, base.en, small.en, medium.en
 preload = true                      # load on startup (recommended)
 threads = 4                         # CPU threads (try 2/4/8)
 beam_size = 5                       # 1=fast, 5=balanced, 10=accurate
@@ -218,11 +217,11 @@ beam_size = 10
 ### Different Models
 ```toml
 [model]
-name = "tiny"   # Faster, less accurate (~75MB)
+model_type = "tiny"   # Faster, less accurate (~75MB)
 # or
-name = "base"   # Good balance (~142MB)
+model_type = "base"   # Good balance (~142MB)
 # or
-name = "medium" # More accurate, slower (~1.5GB)
+model_type = "medium" # More accurate, slower (~1.5GB)
 ```
 
 App auto-downloads model on next run.
