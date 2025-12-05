@@ -483,6 +483,84 @@ log_path = "/tmp/test.log"
     }
 
     #[test]
+    fn test_model_config_effective_methods() {
+        // Test with model_type set (should use model_type)
+        let toml = r#"
+[hotkey]
+modifiers = ["Control"]
+key = "Z"
+
+[audio]
+buffer_size = 1024
+sample_rate = 16000
+
+[model]
+model_type = "Small"
+preload = true
+threads = 4
+beam_size = 5
+
+[telemetry]
+enabled = true
+log_path = "~/.whisper-hotkey/crash.log"
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.model.effective_name(), "small");
+        assert_eq!(
+            config.model.effective_path(),
+            "~/.whisper-hotkey/models/ggml-small.bin"
+        );
+
+        // Test with name/path fields (fallback when model_type is None)
+        let toml = r#"
+[hotkey]
+modifiers = ["Control"]
+key = "Z"
+
+[audio]
+buffer_size = 1024
+sample_rate = 16000
+
+[model]
+name = "custom-model"
+path = "/custom/path/model.bin"
+preload = true
+threads = 4
+beam_size = 5
+
+[telemetry]
+enabled = true
+log_path = "~/.whisper-hotkey/crash.log"
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.model.effective_name(), "custom-model");
+        assert_eq!(config.model.effective_path(), "/custom/path/model.bin");
+
+        // Test with neither set (should return empty string)
+        let toml = r#"
+[hotkey]
+modifiers = ["Control"]
+key = "Z"
+
+[audio]
+buffer_size = 1024
+sample_rate = 16000
+
+[model]
+preload = true
+threads = 4
+beam_size = 5
+
+[telemetry]
+enabled = true
+log_path = "~/.whisper-hotkey/crash.log"
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.model.effective_name(), "");
+        assert_eq!(config.model.effective_path(), "");
+    }
+
+    #[test]
     fn test_parse_config_with_default_optimization() {
         let toml = r#"
 [hotkey]

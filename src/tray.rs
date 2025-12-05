@@ -1182,12 +1182,20 @@ mod tests {
 
     #[test]
     fn test_parse_menu_event_all_models() {
-        // Test all model options
+        // Test all 12 model options
         let models = [
             ("tiny", ModelType::Tiny),
+            ("tiny.en", ModelType::TinyEn),
             ("base", ModelType::Base),
+            ("base.en", ModelType::BaseEn),
             ("small", ModelType::Small),
+            ("small.en", ModelType::SmallEn),
             ("medium", ModelType::Medium),
+            ("medium.en", ModelType::MediumEn),
+            ("large", ModelType::Large),
+            ("large-v1", ModelType::LargeV1),
+            ("large-v2", ModelType::LargeV2),
+            ("large-v3", ModelType::LargeV3),
         ];
         for (name, expected_type) in &models {
             let cmd = TrayManager::parse_menu_event(name);
