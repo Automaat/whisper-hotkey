@@ -140,7 +140,7 @@ impl TrayManager {
         })
     }
 
-    fn build_menu(config: &Config, app_state: Option<AppState>) -> Result<Menu> {
+    pub(crate) fn build_menu(config: &Config, app_state: Option<AppState>) -> Result<Menu> {
         let menu = Menu::new();
 
         // Status item showing current state (non-clickable)
@@ -733,6 +733,12 @@ mod tests {
         assert_eq!(status, "⏳ Transcribing...");
     }
 
+    #[test]
+    fn test_build_menu_none_state() {
+        let status = TrayManager::get_status_text(None);
+        assert_eq!(status, "Whisper Hotkey");
+    }
+
     fn create_test_config() -> Config {
         use crate::config::{AudioConfig, HotkeyConfig, ModelConfig, TelemetryConfig};
         Config {
@@ -760,81 +766,289 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires main thread for Menu creation on macOS"]
     fn test_build_menu_hotkey_selection() {
-        let config = create_test_config();
+        let config = create_test_config(); // Command+Shift+V
+        let menu = TrayManager::build_menu(&config, Some(AppState::Idle)).unwrap();
 
-        // Verify the expected hotkey format matches
-        let current_hotkey = format!("{:?}+{}", config.hotkey.modifiers, config.hotkey.key);
-        let expected_hotkey = format!("{:?}+{}", vec!["Command", "Shift"], "V");
-        assert_eq!(current_hotkey, expected_hotkey);
+        // Find Hotkey submenu
+        let menu_items = menu.items();
+        let hotkey_submenu = menu_items
+            .iter()
+            .find_map(|item| item.as_submenu().filter(|s| s.text() == "Hotkey"))
+            .expect("Hotkey submenu not found");
+
+        // Verify selected hotkey has checkmark
+        let hotkey_items = hotkey_submenu.items();
+        let has_selected = hotkey_items
+            .iter()
+            .filter_map(|item| item.as_menuitem())
+            .any(|mi| mi.text() == "✓ Command+Shift+V");
+        assert!(has_selected, "Selected hotkey should have checkmark");
+
+        // Verify all 4 hotkey options exist
+        let expected_hotkeys = [
+            "Control+Option+Z",
+            "Command+Shift+V",
+            "Command+Option+V",
+            "Control+Shift+Space",
+        ];
+        for hotkey in &expected_hotkeys {
+            let found = hotkey_items
+                .iter()
+                .filter_map(|item| item.as_menuitem())
+                .any(|mi| mi.text() == *hotkey || mi.text() == format!("✓ {}", hotkey));
+            assert!(found, "Hotkey {} not found in menu", hotkey);
+        }
     }
 
     #[test]
+    #[ignore = "requires main thread for Menu creation on macOS"]
     fn test_build_menu_model_selection() {
         let mut config = create_test_config();
         config.model.name = "small".to_owned();
+        let menu = TrayManager::build_menu(&config, Some(AppState::Idle)).unwrap();
 
-        // Verify model selection logic
-        assert_eq!(config.model.name, "small");
-        assert!(["tiny", "base", "small", "medium"].contains(&config.model.name.as_str()));
+        // Find Model submenu
+        let menu_items = menu.items();
+        let model_submenu = menu_items
+            .iter()
+            .find_map(|item| item.as_submenu().filter(|s| s.text() == "Model"))
+            .expect("Model submenu not found");
+
+        // Verify selected model has checkmark
+        let model_items = model_submenu.items();
+        let has_selected = model_items
+            .iter()
+            .filter_map(|item| item.as_menuitem())
+            .any(|mi| mi.text() == "✓ small");
+        assert!(has_selected, "Selected model should have checkmark");
+
+        // Verify all 4 model options exist
+        let expected_models = ["tiny", "base", "small", "medium"];
+        for model in &expected_models {
+            let found = model_items
+                .iter()
+                .filter_map(|item| item.as_menuitem())
+                .any(|mi| mi.text() == *model || mi.text() == format!("✓ {}", model));
+            assert!(found, "Model {} not found in menu", model);
+        }
     }
 
     #[test]
+    #[ignore = "requires main thread for Menu creation on macOS"]
     fn test_build_menu_threads_selection() {
         let mut config = create_test_config();
         config.model.threads = 6;
+        let menu = TrayManager::build_menu(&config, Some(AppState::Idle)).unwrap();
 
-        // Verify threads selection logic
-        assert_eq!(config.model.threads, 6);
-        assert!([2, 4, 6, 8].contains(&config.model.threads));
+        // Find Optimization submenu
+        let menu_items = menu.items();
+        let opt_submenu = menu_items
+            .iter()
+            .find_map(|item| item.as_submenu().filter(|s| s.text() == "Optimization"))
+            .expect("Optimization submenu not found");
+
+        // Find Threads submenu inside Optimization
+        let opt_items = opt_submenu.items();
+        let threads_submenu = opt_items
+            .iter()
+            .find_map(|item| item.as_submenu().filter(|s| s.text() == "Threads"))
+            .expect("Threads submenu not found");
+
+        // Verify selected threads has checkmark
+        let thread_items = threads_submenu.items();
+        let has_selected = thread_items
+            .iter()
+            .filter_map(|item| item.as_menuitem())
+            .any(|mi| mi.text() == "✓ 6 threads");
+        assert!(has_selected, "Selected threads should have checkmark");
+
+        // Verify all 4 thread options exist
+        let expected_threads = [2, 4, 6, 8];
+        for threads in &expected_threads {
+            let found = thread_items
+                .iter()
+                .filter_map(|item| item.as_menuitem())
+                .any(|mi| {
+                    mi.text() == format!("{} threads", threads)
+                        || mi.text() == format!("✓ {} threads", threads)
+                });
+            assert!(found, "Threads {} not found in menu", threads);
+        }
     }
 
     #[test]
+    #[ignore = "requires main thread for Menu creation on macOS"]
     fn test_build_menu_beam_size_selection() {
         let mut config = create_test_config();
         config.model.beam_size = 10;
+        let menu = TrayManager::build_menu(&config, Some(AppState::Idle)).unwrap();
 
-        // Verify beam size selection logic
-        assert_eq!(config.model.beam_size, 10);
-        assert!([1, 3, 5, 8, 10].contains(&config.model.beam_size));
+        // Find Optimization submenu
+        let menu_items = menu.items();
+        let opt_submenu = menu_items
+            .iter()
+            .find_map(|item| item.as_submenu().filter(|s| s.text() == "Optimization"))
+            .expect("Optimization submenu not found");
+
+        // Find Beam Size submenu inside Optimization
+        let opt_items = opt_submenu.items();
+        let beam_submenu = opt_items
+            .iter()
+            .find_map(|item| item.as_submenu().filter(|s| s.text() == "Beam Size"))
+            .expect("Beam Size submenu not found");
+
+        // Verify selected beam size has checkmark
+        let beam_items = beam_submenu.items();
+        let has_selected = beam_items
+            .iter()
+            .filter_map(|item| item.as_menuitem())
+            .any(|mi| mi.text() == "✓ Beam size 10");
+        assert!(has_selected, "Selected beam size should have checkmark");
+
+        // Verify all 5 beam size options exist
+        let expected_beams = [1, 3, 5, 8, 10];
+        for beam in &expected_beams {
+            let found = beam_items
+                .iter()
+                .filter_map(|item| item.as_menuitem())
+                .any(|mi| {
+                    mi.text() == format!("Beam size {}", beam)
+                        || mi.text() == format!("✓ Beam size {}", beam)
+                });
+            assert!(found, "Beam size {} not found in menu", beam);
+        }
     }
 
     #[test]
+    #[ignore = "requires main thread for Menu creation on macOS"]
     fn test_build_menu_language_selection() {
+        // Test Auto-detect (None)
         let config_auto = create_test_config();
+        let menu_auto = TrayManager::build_menu(&config_auto, Some(AppState::Idle)).unwrap();
+        let menu_auto_items = menu_auto.items();
+        let lang_submenu_auto = menu_auto_items
+            .iter()
+            .find_map(|item| item.as_submenu().filter(|s| s.text() == "Language"))
+            .expect("Language submenu not found");
+        let lang_auto_items = lang_submenu_auto.items();
+        let has_auto = lang_auto_items
+            .iter()
+            .filter_map(|item| item.as_menuitem())
+            .any(|mi| mi.text() == "✓ Auto-detect");
+        assert!(has_auto, "Auto-detect should be selected");
+
+        // Test Polish (pl)
         let mut config_polish = create_test_config();
         config_polish.model.language = Some("pl".to_owned());
+        let menu_polish = TrayManager::build_menu(&config_polish, Some(AppState::Idle)).unwrap();
+        let menu_polish_items = menu_polish.items();
+        let lang_submenu_pl = menu_polish_items
+            .iter()
+            .find_map(|item| item.as_submenu().filter(|s| s.text() == "Language"))
+            .expect("Language submenu not found");
+        let lang_pl_items = lang_submenu_pl.items();
+        let has_polish = lang_pl_items
+            .iter()
+            .filter_map(|item| item.as_menuitem())
+            .any(|mi| mi.text() == "✓ Polish");
+        assert!(has_polish, "Polish should be selected");
 
-        // Verify language selection logic
-        assert_eq!(config_auto.model.language, None);
-        assert_eq!(config_polish.model.language, Some("pl".to_owned()));
+        // Verify all 6 language options exist
+        let expected_langs = [
+            "Auto-detect",
+            "English",
+            "Polish",
+            "Spanish",
+            "French",
+            "German",
+        ];
+        for lang in &expected_langs {
+            let found = lang_auto_items
+                .iter()
+                .filter_map(|item| item.as_menuitem())
+                .any(|mi| mi.text() == *lang || mi.text() == format!("✓ {}", lang));
+            assert!(found, "Language {} not found in menu", lang);
+        }
     }
 
     #[test]
+    #[ignore = "requires main thread for Menu creation on macOS"]
     fn test_build_menu_buffer_size_selection() {
         let mut config = create_test_config();
         config.audio.buffer_size = 2048;
+        let menu = TrayManager::build_menu(&config, Some(AppState::Idle)).unwrap();
 
-        // Verify buffer size selection logic
-        assert_eq!(config.audio.buffer_size, 2048);
-        assert!([512, 1024, 2048, 4096].contains(&config.audio.buffer_size));
+        // Find Audio Buffer submenu
+        let menu_items = menu.items();
+        let buffer_submenu = menu_items
+            .iter()
+            .find_map(|item| item.as_submenu().filter(|s| s.text() == "Audio Buffer"))
+            .expect("Audio Buffer submenu not found");
+
+        // Verify selected buffer size has checkmark
+        let buffer_items = buffer_submenu.items();
+        let has_selected = buffer_items
+            .iter()
+            .filter_map(|item| item.as_menuitem())
+            .any(|mi| mi.text() == "✓ 2048 samples");
+        assert!(has_selected, "Selected buffer size should have checkmark");
+
+        // Verify all 4 buffer size options exist
+        let expected_sizes = [512, 1024, 2048, 4096];
+        for size in &expected_sizes {
+            let found = buffer_items
+                .iter()
+                .filter_map(|item| item.as_menuitem())
+                .any(|mi| {
+                    mi.text() == format!("{} samples", size)
+                        || mi.text() == format!("✓ {} samples", size)
+                });
+            assert!(found, "Buffer size {} not found in menu", size);
+        }
     }
 
     #[test]
+    #[ignore = "requires main thread for Menu creation on macOS"]
     fn test_build_menu_preload_toggle_checked() {
         let mut config = create_test_config();
         config.model.preload = true;
+        let menu = TrayManager::build_menu(&config, Some(AppState::Idle)).unwrap();
 
-        // Verify preload toggle state
-        assert!(config.model.preload);
+        // Find Preload Model CheckMenuItem
+        let menu_items = menu.items();
+        let preload_item = menu_items
+            .iter()
+            .find_map(|item| {
+                item.as_check_menuitem()
+                    .filter(|check| check.text() == "Preload Model")
+            })
+            .expect("Preload Model CheckMenuItem not found");
+
+        assert!(preload_item.is_checked(), "Preload should be checked");
     }
 
     #[test]
+    #[ignore = "requires main thread for Menu creation on macOS"]
     fn test_build_menu_telemetry_toggle_unchecked() {
         let config = create_test_config();
+        let menu = TrayManager::build_menu(&config, Some(AppState::Idle)).unwrap();
 
-        // Verify telemetry toggle state
-        assert!(!config.telemetry.enabled);
+        // Find Telemetry CheckMenuItem
+        let menu_items = menu.items();
+        let telemetry_item = menu_items
+            .iter()
+            .find_map(|item| {
+                item.as_check_menuitem()
+                    .filter(|check| check.text() == "Telemetry")
+            })
+            .expect("Telemetry CheckMenuItem not found");
+
+        assert!(
+            !telemetry_item.is_checked(),
+            "Telemetry should be unchecked"
+        );
     }
 
     #[test]
