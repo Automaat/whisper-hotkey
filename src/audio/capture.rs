@@ -781,4 +781,137 @@ mod tests {
         // In a real test environment this verifies stream was active
         let _ = samples;
     }
+
+    #[test]
+    fn test_convert_to_16khz_mono_with_nan_samples() {
+        let capture = mock_audio_capture(16000, 1);
+
+        // Samples with NaN (Not a Number)
+        let samples = vec![1.0, f32::NAN, 3.0, 4.0];
+
+        let result = capture.convert_to_16khz_mono(&samples);
+
+        // Should handle NaN without panicking
+        assert_eq!(result.len(), 4);
+        // NaN will be preserved through the conversion
+        assert!(result[1].is_nan());
+    }
+
+    #[test]
+    fn test_convert_to_16khz_mono_with_infinity() {
+        let capture = mock_audio_capture(16000, 1);
+
+        // Samples with infinity
+        let samples = vec![1.0, f32::INFINITY, -f32::INFINITY, 4.0];
+
+        let result = capture.convert_to_16khz_mono(&samples);
+
+        // Should handle infinity without panicking
+        assert_eq!(result.len(), 4);
+        assert_eq!(result[1], f32::INFINITY);
+        assert_eq!(result[2], -f32::INFINITY);
+    }
+
+    #[test]
+    fn test_resampling_ratio_44100_to_16000() {
+        let capture = mock_audio_capture(44100, 1);
+
+        // 44100 samples at 44.1kHz = 1 second
+        let samples = vec![0.0; 44100];
+
+        let result = capture.convert_to_16khz_mono(&samples);
+
+        // Should produce approximately 16000 samples at 16kHz = 1 second
+        // Allow 1% tolerance for rounding
+        #[allow(clippy::cast_precision_loss)]
+        let ratio_error = ((result.len() as f32 / 16000.0) - 1.0).abs();
+        assert!(ratio_error < 0.01, "Ratio error {ratio_error} exceeds 1%");
+    }
+
+    #[test]
+    fn test_resampling_ratio_48000_to_16000() {
+        let capture = mock_audio_capture(48000, 1);
+
+        // 48000 samples at 48kHz = 1 second
+        let samples = vec![0.0; 48000];
+
+        let result = capture.convert_to_16khz_mono(&samples);
+
+        // Should produce exactly 16000 samples at 16kHz = 1 second
+        // 48000 / 16000 = 3, so this should be exact
+        assert_eq!(result.len(), 16000);
+    }
+
+    #[test]
+    fn test_save_wav_debug_creates_nested_directory() {
+        use std::fs;
+
+        let samples = vec![0.1, 0.2];
+
+        // Use temp_dir with non-existent nested subdirectory
+        let temp_dir = std::env::temp_dir();
+        let nested_dir = temp_dir.join(format!(
+            "whisper_test_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let wav_path = nested_dir.join("nested").join("test.wav");
+
+        // Should succeed by creating parent directories
+        let result = AudioCapture::save_wav_debug(&samples, &wav_path);
+        assert!(result.is_ok());
+        assert!(wav_path.exists());
+
+        // Cleanup
+        let _ = fs::remove_dir_all(&nested_dir);
+    }
+
+    #[test]
+    fn test_convert_to_16khz_mono_large_samples() {
+        let capture = mock_audio_capture(44100, 2);
+
+        // Large sample set (10 seconds of stereo audio)
+        let sample_count = 44100 * 10 * 2;
+        let samples = vec![0.5; sample_count];
+
+        let result = capture.convert_to_16khz_mono(&samples);
+
+        // Should produce approximately 16000 * 10 = 160000 samples
+        let expected: usize = 16000 * 10;
+        let tolerance: usize = 100; // Allow small tolerance for rounding
+        let diff = result.len().abs_diff(expected);
+        assert!(
+            diff < tolerance,
+            "Expected ~{expected} samples, got {} (diff: {diff})",
+            result.len()
+        );
+    }
+
+    #[test]
+    fn test_stereo_to_mono_maintains_amplitude() {
+        let capture = mock_audio_capture(16000, 2);
+
+        // Stereo with same value in both channels
+        let stereo_samples = vec![0.8, 0.8, -0.6, -0.6, 0.4, 0.4];
+
+        let result = capture.convert_to_16khz_mono(&stereo_samples);
+
+        // Average should maintain the amplitude
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0], 0.8);
+        assert_eq!(result[1], -0.6);
+        assert_eq!(result[2], 0.4);
+    }
+
+    #[test]
+    fn test_empty_samples_resampling() {
+        let capture = mock_audio_capture(44100, 1);
+
+        let empty: Vec<f32> = vec![];
+        let result = capture.convert_to_16khz_mono(&empty);
+
+        assert_eq!(result.len(), 0);
+    }
 }

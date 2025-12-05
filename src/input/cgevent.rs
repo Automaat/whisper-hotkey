@@ -213,4 +213,46 @@ mod tests {
         // but it tests the code path
         let _ = insert_text_safe("test");
     }
+
+    #[test]
+    fn test_utf16_encoding_emojis() {
+        // Test that emojis encode correctly to UTF-16
+        let text = "Hello 👋 World 🌍";
+        let utf16: Vec<u16> = text.encode_utf16().collect();
+
+        // Emojis require 2 UTF-16 code units each (surrogate pairs)
+        // "Hello " = 6, "👋" = 2, " World " = 7, "🌍" = 2 = 17 total
+        assert_eq!(utf16.len(), 17);
+
+        // UTF-16 length should be more than character count
+        // (because 2 emojis are encoded as 4 UTF-16 code units)
+        assert!(utf16.len() > text.chars().count());
+    }
+
+    #[test]
+    fn test_utf16_encoding_polish() {
+        // Test Polish characters encode correctly
+        let text = "Zażółć gęślą jaźń";
+
+        // Polish characters with diacritics should encode correctly
+        // Each character is a single UTF-16 code unit
+        assert_eq!(text.encode_utf16().count(), text.chars().count());
+    }
+
+    #[test]
+    fn test_utf16_encoding_newlines_and_tabs() {
+        // Test whitespace characters encode correctly
+        let text = "Line1\nLine2\tTabbed";
+        let utf16: Vec<u16> = text.encode_utf16().collect();
+
+        // Newlines and tabs should be preserved in UTF-16
+        assert_eq!(utf16.len(), text.chars().count());
+
+        // Verify newline and tab are present
+        let decoded: String = char::decode_utf16(utf16.iter().copied())
+            .map(|r| r.unwrap_or('�'))
+            .collect();
+        assert!(decoded.contains('\n'));
+        assert!(decoded.contains('\t'));
+    }
 }

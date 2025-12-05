@@ -94,8 +94,41 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_check_microphone_permission() {
+    fn test_check_microphone_permission_always_ok() {
+        // Microphone permission always returns Ok (deferred to first audio capture)
         let result = check_microphone_permission();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_check_microphone_permission_never_fails() {
+        // Call multiple times to ensure consistent behavior
+        for _ in 0..3 {
+            assert!(check_microphone_permission().is_ok());
+        }
+    }
+
+    #[test]
+    #[cfg(not(target_os = "macos"))]
+    fn test_accessibility_permission_on_non_macos() {
+        // On non-macOS, should always succeed
+        let result = check_accessibility_permission();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    #[cfg(not(target_os = "macos"))]
+    fn test_input_monitoring_permission_on_non_macos() {
+        // On non-macOS, should always succeed
+        let result = check_input_monitoring_permission();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    #[cfg(not(target_os = "macos"))]
+    fn test_request_all_permissions_on_non_macos() {
+        // On non-macOS, all permissions should succeed
+        let result = request_all_permissions();
         assert!(result.is_ok());
     }
 
