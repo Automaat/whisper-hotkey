@@ -249,4 +249,50 @@ mod tests {
         let result = request_all_permissions();
         assert!(result.is_ok());
     }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn test_request_all_permissions_fails_without_permissions() {
+        // In CI without permissions, request_all_permissions should fail
+        // at accessibility check (first permission that requires prompt)
+        let result = request_all_permissions();
+
+        // Will fail on accessibility check in CI
+        if let Err(e) = result {
+            let error_msg = e.to_string();
+            assert!(error_msg.contains("Accessibility permission required"));
+        }
+        // If all permissions granted (dev machine), that's also fine
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn test_accessibility_permission_error_includes_instructions() {
+        let result = check_accessibility_permission();
+
+        if let Err(e) = result {
+            let error_msg = e.to_string();
+            // Verify comprehensive error message
+            assert!(error_msg.contains("Privacy & Security"));
+            assert!(error_msg.contains("Accessibility"));
+            assert!(error_msg.contains("Restart the app"));
+        }
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn test_input_monitoring_with_event_source_creation() {
+        // Test both CGEventSource and CGEvent creation paths
+        let result = check_input_monitoring_permission();
+
+        if result.is_err() {
+            let error_msg = result.unwrap_err().to_string();
+            // Should mention either Input Monitoring or CGEvent
+            assert!(
+                error_msg.contains("Input Monitoring") || error_msg.contains("CGEvent"),
+                "Error message should mention permission issue: {}",
+                error_msg
+            );
+        }
+    }
 }
