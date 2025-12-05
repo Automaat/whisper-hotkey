@@ -519,16 +519,16 @@ mod tests {
     fn test_get_sampling_strategy_beam_search() {
         // beam_size > 1 should use BeamSearch strategy
         let strategy = TranscriptionEngine::get_sampling_strategy(5);
-        match strategy {
-            SamplingStrategy::BeamSearch {
-                beam_size,
-                patience,
-            } => {
-                assert_eq!(beam_size, 5);
-                assert_eq!(patience, -1.0);
-            }
-            _ => panic!("Expected BeamSearch strategy"),
-        }
+        assert!(
+            matches!(
+                strategy,
+                SamplingStrategy::BeamSearch {
+                    beam_size: 5,
+                    patience: -1.0
+                }
+            ),
+            "Expected BeamSearch with beam_size=5, patience=-1.0"
+        );
     }
 
     #[test]
@@ -539,12 +539,10 @@ mod tests {
             if beam == 1 {
                 assert!(matches!(strategy, SamplingStrategy::Greedy { .. }));
             } else {
-                match strategy {
-                    SamplingStrategy::BeamSearch { beam_size, .. } => {
-                        assert_eq!(beam_size, beam);
-                    }
-                    _ => panic!("Expected BeamSearch for beam_size={}", beam),
-                }
+                assert!(
+                    matches!(strategy, SamplingStrategy::BeamSearch { beam_size, .. } if beam_size == beam),
+                    "Expected BeamSearch with beam_size={beam}"
+                );
             }
         }
     }
@@ -553,12 +551,13 @@ mod tests {
     fn test_get_sampling_strategy_large_beam() {
         // Test with large beam size
         let strategy = TranscriptionEngine::get_sampling_strategy(100);
-        match strategy {
-            SamplingStrategy::BeamSearch { beam_size, .. } => {
-                assert_eq!(beam_size, 100);
-            }
-            _ => panic!("Expected BeamSearch strategy"),
-        }
+        assert!(
+            matches!(
+                strategy,
+                SamplingStrategy::BeamSearch { beam_size: 100, .. }
+            ),
+            "Expected BeamSearch with beam_size=100"
+        );
     }
 
     #[test]
@@ -576,16 +575,13 @@ mod tests {
         // Verify patience is always -1.0 for BeamSearch
         for beam_size in [2, 5, 10, 20] {
             let strategy = TranscriptionEngine::get_sampling_strategy(beam_size);
-            match strategy {
-                SamplingStrategy::BeamSearch { patience, .. } => {
-                    assert_eq!(
-                        patience, -1.0,
-                        "Patience should be -1.0 for beam_size={}",
-                        beam_size
-                    );
-                }
-                _ => panic!("Expected BeamSearch for beam_size={}", beam_size),
-            }
+            assert!(
+                matches!(
+                    strategy,
+                    SamplingStrategy::BeamSearch { patience: -1.0, .. }
+                ),
+                "Expected BeamSearch with patience=-1.0 for beam_size={beam_size}"
+            );
         }
     }
 }
