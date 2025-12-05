@@ -36,18 +36,7 @@ impl TrayManager {
         cached_icons.insert(AppState::Recording, Self::load_icon(AppState::Recording)?);
         cached_icons.insert(AppState::Processing, Self::load_icon(AppState::Processing)?);
 
-        let icon = cached_icons
-            .get(&AppState::Idle)
-            .context("idle icon not in cache")?
-            .clone();
-        let menu = Self::build_menu(config, Some(AppState::Idle))?;
-
-        let tray = TrayIconBuilder::new()
-            .with_menu(Box::new(menu))
-            .with_tooltip("Whisper Hotkey")
-            .with_icon(icon)
-            .build()
-            .context("failed to build tray icon")?;
+        let tray = Self::build_tray(config, AppState::Idle, &cached_icons)?;
 
         Ok(Self {
             tray,
@@ -55,6 +44,25 @@ impl TrayManager {
             current_icon_state: AppState::Idle,
             cached_icons,
         })
+    }
+
+    fn build_tray(
+        config: &Config,
+        app_state: AppState,
+        cached_icons: &HashMap<AppState, Icon>,
+    ) -> Result<tray_icon::TrayIcon> {
+        let icon = cached_icons
+            .get(&app_state)
+            .with_context(|| format!("icon for state {:?} not in cache", app_state))?
+            .clone();
+        let menu = Self::build_menu(config, Some(app_state))?;
+
+        TrayIconBuilder::new()
+            .with_menu(Box::new(menu))
+            .with_tooltip("Whisper Hotkey")
+            .with_icon(icon)
+            .build()
+            .context("failed to build tray icon")
     }
 
     fn load_icon(state: AppState) -> Result<Icon> {
@@ -114,20 +122,12 @@ impl TrayManager {
                 new_state
             );
 
-            // Rebuild menu with new state (reliable feedback)
-            let new_menu = Self::build_menu(config, Some(new_state))?;
-            self.tray.set_menu(Some(Box::new(new_menu)));
-
-            // Try icon update (has known macOS bug but keep trying) - use cached icon
-            let icon = self
-                .cached_icons
-                .get(&new_state)
-                .context("icon not in cache")?
-                .clone();
-            self.tray.set_icon(Some(icon)).ok();
+            // Rebuild entire tray with new state (workaround for macOS set_icon() bug)
+            let new_tray = Self::build_tray(config, new_state, &self.cached_icons)?;
+            self.tray = new_tray;
 
             self.current_icon_state = new_state;
-            tracing::info!("✓ tray menu updated with state: {:?}", new_state);
+            tracing::info!("✓ tray icon rebuilt with state: {:?}", new_state);
         }
         Ok(())
     }
