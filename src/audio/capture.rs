@@ -12,6 +12,32 @@ use tracing::{debug, info, warn};
 
 use crate::config::AudioConfig;
 
+/// Trait for audio capture operations (enables testing via mocking)
+///
+/// This trait abstracts audio capture functionality to enable dependency injection
+/// and mock-based testing in components like the hotkey state machine.
+///
+/// # Expected lifecycle
+/// 1. Call [`start_recording()`] to begin audio capture.
+/// 2. Call [`stop_recording()`] to end capture and retrieve samples.
+///
+/// Production code should use the concrete [`AudioCapture`] type directly.
+/// Use this trait for testing with `MockAudioCaptureInterface` (via `mockall`).
+#[cfg_attr(test, mockall::automock)]
+#[allow(dead_code)] // Prepared for future hotkey.rs state machine tests
+trait AudioCaptureInterface {
+    /// Start capturing audio from microphone
+    ///
+    /// # Errors
+    /// Returns error if audio stream activation fails
+    fn start_recording(&mut self) -> Result<()>;
+    /// Stop capturing and return recorded samples
+    ///
+    /// # Errors
+    /// Returns error if audio stream deactivation or sample retrieval fails
+    fn stop_recording(&mut self) -> Result<Vec<f32>>;
+}
+
 /// Trait for controlling audio stream lifecycle
 trait StreamControl {
     /// Resume audio stream (activate microphone)
@@ -135,12 +161,21 @@ impl AudioCapture {
         })
     }
 
-    /// Starts recording audio
+    /// Starts recording audio (public interface)
     ///
     /// # Errors
     /// Returns error if ring buffer flush fails
     #[allow(clippy::unnecessary_wraps)] // Consistent API, may add fallible ops later
     pub fn start_recording(&mut self) -> Result<()> {
+        self.start_recording_impl()
+    }
+
+    /// Starts recording audio (implementation)
+    ///
+    /// # Errors
+    /// Returns error if ring buffer flush fails
+    #[allow(clippy::unnecessary_wraps)] // Consistent API, may add fallible ops later
+    fn start_recording_impl(&mut self) -> Result<()> {
         let _span = tracing::debug_span!("start_recording").entered();
         let start = std::time::Instant::now();
         debug!("starting recording");
@@ -161,12 +196,21 @@ impl AudioCapture {
         Ok(())
     }
 
-    /// Stops recording and returns captured samples (16kHz mono f32)
+    /// Stops recording and returns captured samples (public interface)
     ///
     /// # Errors
     /// Returns error if sample conversion fails
     #[allow(clippy::unnecessary_wraps)] // Consistent API, may add fallible ops later
     pub fn stop_recording(&mut self) -> Result<Vec<f32>> {
+        self.stop_recording_impl()
+    }
+
+    /// Stops recording and returns captured samples (16kHz mono f32)
+    ///
+    /// # Errors
+    /// Returns error if sample conversion fails
+    #[allow(clippy::unnecessary_wraps)] // Consistent API, may add fallible ops later
+    fn stop_recording_impl(&mut self) -> Result<Vec<f32>> {
         let _span = tracing::debug_span!("stop_recording").entered();
         let start_total = std::time::Instant::now();
         debug!("stopping recording");
@@ -353,6 +397,17 @@ impl AudioCapture {
             samples.len()
         );
         Ok(())
+    }
+}
+
+/// Implement trait for real `AudioCapture`
+impl AudioCaptureInterface for AudioCapture {
+    fn start_recording(&mut self) -> Result<()> {
+        self.start_recording_impl()
+    }
+
+    fn stop_recording(&mut self) -> Result<Vec<f32>> {
+        self.stop_recording_impl()
     }
 }
 

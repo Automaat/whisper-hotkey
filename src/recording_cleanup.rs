@@ -14,15 +14,19 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// Returns error if directory listing fails. Individual file deletion failures are logged but don't stop cleanup.
 pub fn cleanup_old_recordings(config: &RecordingConfig) -> Result<usize> {
     let debug_dir = get_debug_dir()?;
+    cleanup_recordings_in_dir(config, &debug_dir)
+}
 
+/// Internal cleanup function that accepts directory parameter (more testable)
+fn cleanup_recordings_in_dir(config: &RecordingConfig, dir: &PathBuf) -> Result<usize> {
     // If directory doesn't exist, nothing to clean
-    if !debug_dir.exists() {
+    if !dir.exists() {
         tracing::debug!("debug directory does not exist, skipping cleanup");
         return Ok(0);
     }
 
     // Collect all recording files with their timestamps
-    let mut recordings: Vec<(PathBuf, u64)> = fs::read_dir(&debug_dir)
+    let mut recordings: Vec<(PathBuf, u64)> = fs::read_dir(dir)
         .context("failed to read debug directory")?
         .filter_map(std::result::Result::ok)
         .filter_map(|entry| {
@@ -116,11 +120,7 @@ mod tests {
     use super::*;
     use std::fs;
     use std::path::Path;
-    use std::sync::Mutex;
     use std::time::{SystemTime, UNIX_EPOCH};
-
-    // Shared mutex for all tests that modify HOME
-    static HOME_TEST_LOCK: Mutex<()> = Mutex::new(());
 
     fn create_test_dir() -> PathBuf {
         let temp_base = std::env::temp_dir();
@@ -149,16 +149,7 @@ mod tests {
 
     #[test]
     fn test_cleanup_empty_directory() {
-        let _guard = HOME_TEST_LOCK.lock().unwrap();
         let test_dir = create_test_dir();
-
-        // Save original HOME
-        let original_home = std::env::var("HOME").ok();
-        std::env::set_var("HOME", test_dir.to_str().unwrap());
-
-        // Create debug dir but keep it empty
-        let debug_dir = test_dir.join(".whisper-hotkey/debug");
-        fs::create_dir_all(&debug_dir).unwrap();
 
         let config = RecordingConfig {
             enabled: true,
@@ -167,28 +158,17 @@ mod tests {
             cleanup_interval_hours: 1,
         };
 
-        let deleted = cleanup_old_recordings(&config).unwrap();
+        // Test existing but empty directory - should return 0 deleted
+        let deleted = cleanup_recordings_in_dir(&config, &test_dir).unwrap();
         assert_eq!(deleted, 0);
-
-        // Restore HOME
-        if let Some(home) = original_home {
-            std::env::set_var("HOME", home);
-        } else {
-            std::env::remove_var("HOME");
-        }
 
         let _ = fs::remove_dir_all(&test_dir);
     }
 
     #[test]
     fn test_cleanup_missing_directory() {
-        let _guard = HOME_TEST_LOCK.lock().unwrap();
         let test_dir = create_test_dir();
-
-        let original_home = std::env::var("HOME").ok();
-        std::env::set_var("HOME", test_dir.to_str().unwrap());
-
-        // Don't create debug dir
+        let nonexistent_dir = test_dir.join("nonexistent");
 
         let config = RecordingConfig {
             enabled: true,
@@ -197,27 +177,15 @@ mod tests {
             cleanup_interval_hours: 1,
         };
 
-        let deleted = cleanup_old_recordings(&config).unwrap();
+        let deleted = cleanup_recordings_in_dir(&config, &nonexistent_dir).unwrap();
         assert_eq!(deleted, 0);
-
-        if let Some(home) = original_home {
-            std::env::set_var("HOME", home);
-        } else {
-            std::env::remove_var("HOME");
-        }
 
         let _ = fs::remove_dir_all(&test_dir);
     }
 
     #[test]
     fn test_cleanup_age_based() {
-        let _guard = HOME_TEST_LOCK.lock().unwrap();
         let test_dir = create_test_dir();
-        let original_home = std::env::var("HOME").ok();
-        std::env::set_var("HOME", test_dir.to_str().unwrap());
-
-        let debug_dir = test_dir.join(".whisper-hotkey/debug");
-        fs::create_dir_all(&debug_dir).unwrap();
 
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -226,11 +194,11 @@ mod tests {
 
         // Create old recording (8 days ago)
         let old_ts = now - (8 * 24 * 60 * 60);
-        create_recording(&debug_dir, old_ts);
+        create_recording(&test_dir, old_ts);
 
         // Create recent recording (1 day ago)
         let recent_ts = now - (24 * 60 * 60);
-        create_recording(&debug_dir, recent_ts);
+        create_recording(&test_dir, recent_ts);
 
         let config = RecordingConfig {
             enabled: true,
@@ -239,33 +207,19 @@ mod tests {
             cleanup_interval_hours: 1,
         };
 
-        let deleted = cleanup_old_recordings(&config).unwrap();
+        let deleted = cleanup_recordings_in_dir(&config, &test_dir).unwrap();
         assert_eq!(deleted, 1);
 
         // Verify old file deleted, recent remains
-        assert!(!debug_dir.join(format!("recording_{old_ts}.wav")).exists());
-        assert!(debug_dir
-            .join(format!("recording_{recent_ts}.wav"))
-            .exists());
-
-        if let Some(home) = original_home {
-            std::env::set_var("HOME", home);
-        } else {
-            std::env::remove_var("HOME");
-        }
+        assert!(!test_dir.join(format!("recording_{old_ts}.wav")).exists());
+        assert!(test_dir.join(format!("recording_{recent_ts}.wav")).exists());
 
         let _ = fs::remove_dir_all(&test_dir);
     }
 
     #[test]
     fn test_cleanup_count_based() {
-        let _guard = HOME_TEST_LOCK.lock().unwrap();
         let test_dir = create_test_dir();
-        let original_home = std::env::var("HOME").ok();
-        std::env::set_var("HOME", test_dir.to_str().unwrap());
-
-        let debug_dir = test_dir.join(".whisper-hotkey/debug");
-        fs::create_dir_all(&debug_dir).unwrap();
 
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -275,7 +229,7 @@ mod tests {
         // Create 5 recordings
         let timestamps: Vec<u64> = (0..5).map(|i| now - (i * 60)).collect();
         for ts in &timestamps {
-            create_recording(&debug_dir, *ts);
+            create_recording(&test_dir, *ts);
         }
 
         let config = RecordingConfig {
@@ -285,46 +239,34 @@ mod tests {
             cleanup_interval_hours: 1,
         };
 
-        let deleted = cleanup_old_recordings(&config).unwrap();
+        let deleted = cleanup_recordings_in_dir(&config, &test_dir).unwrap();
         assert_eq!(deleted, 2);
 
         // Verify 3 most recent remain
-        assert!(debug_dir
+        assert!(test_dir
             .join(format!("recording_{}.wav", timestamps[0]))
             .exists());
-        assert!(debug_dir
+        assert!(test_dir
             .join(format!("recording_{}.wav", timestamps[1]))
             .exists());
-        assert!(debug_dir
+        assert!(test_dir
             .join(format!("recording_{}.wav", timestamps[2]))
             .exists());
 
         // Verify 2 oldest deleted
-        assert!(!debug_dir
+        assert!(!test_dir
             .join(format!("recording_{}.wav", timestamps[3]))
             .exists());
-        assert!(!debug_dir
+        assert!(!test_dir
             .join(format!("recording_{}.wav", timestamps[4]))
             .exists());
-
-        if let Some(home) = original_home {
-            std::env::set_var("HOME", home);
-        } else {
-            std::env::remove_var("HOME");
-        }
 
         let _ = fs::remove_dir_all(&test_dir);
     }
 
     #[test]
     fn test_cleanup_both_policies() {
-        let _guard = HOME_TEST_LOCK.lock().unwrap();
         let test_dir = create_test_dir();
-        let original_home = std::env::var("HOME").ok();
-        std::env::set_var("HOME", test_dir.to_str().unwrap());
-
-        let debug_dir = test_dir.join(".whisper-hotkey/debug");
-        fs::create_dir_all(&debug_dir).unwrap();
 
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -333,11 +275,11 @@ mod tests {
 
         // Create old file (will be deleted by age)
         let old_ts = now - (10 * 24 * 60 * 60);
-        create_recording(&debug_dir, old_ts);
+        create_recording(&test_dir, old_ts);
 
         // Create 4 recent files (1 will be deleted by count)
         for i in 0..4 {
-            create_recording(&debug_dir, now - (i * 60));
+            create_recording(&test_dir, now - (i * 60));
         }
 
         let config = RecordingConfig {
@@ -347,31 +289,19 @@ mod tests {
             cleanup_interval_hours: 1,
         };
 
-        let deleted = cleanup_old_recordings(&config).unwrap();
+        let deleted = cleanup_recordings_in_dir(&config, &test_dir).unwrap();
         assert_eq!(deleted, 2); // 1 old + 1 exceeding count
 
         // Verify 3 most recent remain
-        let remaining = fs::read_dir(&debug_dir).unwrap().count();
+        let remaining = fs::read_dir(&test_dir).unwrap().count();
         assert_eq!(remaining, 3);
-
-        if let Some(home) = original_home {
-            std::env::set_var("HOME", home);
-        } else {
-            std::env::remove_var("HOME");
-        }
 
         let _ = fs::remove_dir_all(&test_dir);
     }
 
     #[test]
     fn test_cleanup_zero_values_no_deletion() {
-        let _guard = HOME_TEST_LOCK.lock().unwrap();
         let test_dir = create_test_dir();
-        let original_home = std::env::var("HOME").ok();
-        std::env::set_var("HOME", test_dir.to_str().unwrap());
-
-        let debug_dir = test_dir.join(".whisper-hotkey/debug");
-        fs::create_dir_all(&debug_dir).unwrap();
 
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -379,11 +309,11 @@ mod tests {
             .as_secs();
 
         // Create old file
-        create_recording(&debug_dir, now - (30 * 24 * 60 * 60));
+        create_recording(&test_dir, now - (30 * 24 * 60 * 60));
 
         // Create many files
         for i in 0..10 {
-            create_recording(&debug_dir, now - (i * 60));
+            create_recording(&test_dir, now - (i * 60));
         }
 
         let config = RecordingConfig {
@@ -393,31 +323,19 @@ mod tests {
             cleanup_interval_hours: 0,
         };
 
-        let deleted = cleanup_old_recordings(&config).unwrap();
+        let deleted = cleanup_recordings_in_dir(&config, &test_dir).unwrap();
         assert_eq!(deleted, 0);
 
         // All files should remain
-        let remaining = fs::read_dir(&debug_dir).unwrap().count();
+        let remaining = fs::read_dir(&test_dir).unwrap().count();
         assert_eq!(remaining, 11);
-
-        if let Some(home) = original_home {
-            std::env::set_var("HOME", home);
-        } else {
-            std::env::remove_var("HOME");
-        }
 
         let _ = fs::remove_dir_all(&test_dir);
     }
 
     #[test]
     fn test_cleanup_ignores_non_recording_files() {
-        let _guard = HOME_TEST_LOCK.lock().unwrap();
         let test_dir = create_test_dir();
-        let original_home = std::env::var("HOME").ok();
-        std::env::set_var("HOME", test_dir.to_str().unwrap());
-
-        let debug_dir = test_dir.join(".whisper-hotkey/debug");
-        fs::create_dir_all(&debug_dir).unwrap();
 
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -425,12 +343,12 @@ mod tests {
             .as_secs();
 
         // Create valid recording
-        create_recording(&debug_dir, now - (10 * 24 * 60 * 60));
+        create_recording(&test_dir, now - (10 * 24 * 60 * 60));
 
         // Create files that should be ignored
-        fs::write(debug_dir.join("other_file.wav"), b"data").unwrap();
-        fs::write(debug_dir.join("recording.txt"), b"data").unwrap();
-        fs::write(debug_dir.join("recording_invalid.wav"), b"data").unwrap();
+        fs::write(test_dir.join("other_file.wav"), b"data").unwrap();
+        fs::write(test_dir.join("recording.txt"), b"data").unwrap();
+        fs::write(test_dir.join("recording_invalid.wav"), b"data").unwrap();
 
         let config = RecordingConfig {
             enabled: true,
@@ -439,19 +357,13 @@ mod tests {
             cleanup_interval_hours: 1,
         };
 
-        let deleted = cleanup_old_recordings(&config).unwrap();
+        let deleted = cleanup_recordings_in_dir(&config, &test_dir).unwrap();
         assert_eq!(deleted, 1); // Only the valid old recording
 
         // Other files should still exist
-        assert!(debug_dir.join("other_file.wav").exists());
-        assert!(debug_dir.join("recording.txt").exists());
-        assert!(debug_dir.join("recording_invalid.wav").exists());
-
-        if let Some(home) = original_home {
-            std::env::set_var("HOME", home);
-        } else {
-            std::env::remove_var("HOME");
-        }
+        assert!(test_dir.join("other_file.wav").exists());
+        assert!(test_dir.join("recording.txt").exists());
+        assert!(test_dir.join("recording_invalid.wav").exists());
 
         let _ = fs::remove_dir_all(&test_dir);
     }
