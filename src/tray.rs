@@ -7,7 +7,7 @@ use tray_icon::{Icon, TrayIconBuilder};
 use crate::config::Config;
 use crate::input::hotkey::AppState;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TrayCommand {
     UpdateHotkey { modifiers: Vec<String>, key: String },
     UpdateModel { name: String },
@@ -140,6 +140,24 @@ impl TrayManager {
         })
     }
 
+    fn format_hotkey_display(mods: &[String], key: &str) -> String {
+        format!("{:?}+{}", mods, key)
+    }
+
+    fn is_hotkey_selected(config: &Config, mods: &[&str], key: &str) -> bool {
+        let current = Self::format_hotkey_display(&config.hotkey.modifiers, &config.hotkey.key);
+        let candidate = format!("{:?}+{}", mods, key);
+        current == candidate
+    }
+
+    fn format_label_with_checkmark(label: &str, is_selected: bool) -> String {
+        if is_selected {
+            format!("✓ {}", label)
+        } else {
+            label.to_owned()
+        }
+    }
+
     pub(crate) fn build_menu(config: &Config, app_state: Option<AppState>) -> Result<Menu> {
         let menu = Menu::new();
 
@@ -153,7 +171,6 @@ impl TrayManager {
 
         // Hotkey submenu
         let hotkey_submenu = Submenu::new("Hotkey", true);
-        let current_hotkey = format!("{:?}+{}", config.hotkey.modifiers, config.hotkey.key);
 
         // Common hotkey combinations
         let hotkeys = vec![
@@ -164,12 +181,8 @@ impl TrayManager {
         ];
 
         for (label, mods, key) in hotkeys {
-            let is_selected = format!("{:?}+{}", mods, key) == current_hotkey;
-            let display_label = if is_selected {
-                format!("✓ {}", label)
-            } else {
-                label.to_owned()
-            };
+            let is_selected = Self::is_hotkey_selected(config, &mods, key);
+            let display_label = Self::format_label_with_checkmark(label, is_selected);
             let item = MenuItem::new(&display_label, true, None);
             hotkey_submenu
                 .append(&item)
@@ -185,11 +198,7 @@ impl TrayManager {
 
         for model_name in models {
             let is_selected = config.model.name == model_name;
-            let display_label = if is_selected {
-                format!("✓ {}", model_name)
-            } else {
-                model_name.to_owned()
-            };
+            let display_label = Self::format_label_with_checkmark(model_name, is_selected);
             let item = MenuItem::new(&display_label, true, None);
             model_submenu
                 .append(&item)
@@ -206,11 +215,8 @@ impl TrayManager {
         let threads_submenu = Submenu::new("Threads", true);
         for threads in [2, 4, 6, 8] {
             let is_selected = config.model.threads == threads;
-            let label = if is_selected {
-                format!("✓ {} threads", threads)
-            } else {
-                format!("{} threads", threads)
-            };
+            let base_label = format!("{} threads", threads);
+            let label = Self::format_label_with_checkmark(&base_label, is_selected);
             let item = MenuItem::new(&label, true, None);
             threads_submenu
                 .append(&item)
@@ -224,11 +230,8 @@ impl TrayManager {
         let beam_submenu = Submenu::new("Beam Size", true);
         for beam in [1, 3, 5, 8, 10] {
             let is_selected = config.model.beam_size == beam;
-            let label = if is_selected {
-                format!("✓ Beam size {}", beam)
-            } else {
-                format!("Beam size {}", beam)
-            };
+            let base_label = format!("Beam size {}", beam);
+            let label = Self::format_label_with_checkmark(&base_label, is_selected);
             let item = MenuItem::new(&label, true, None);
             beam_submenu
                 .append(&item)
@@ -254,11 +257,7 @@ impl TrayManager {
 
         for (label, lang_code) in languages {
             let is_selected = config.model.language.as_deref() == lang_code;
-            let display_label = if is_selected {
-                format!("✓ {}", label)
-            } else {
-                label.to_owned()
-            };
+            let display_label = Self::format_label_with_checkmark(label, is_selected);
             let item = MenuItem::new(&display_label, true, None);
             lang_submenu
                 .append(&item)
@@ -272,11 +271,8 @@ impl TrayManager {
         let buffer_submenu = Submenu::new("Audio Buffer", true);
         for size in [512, 1024, 2048, 4096] {
             let is_selected = config.audio.buffer_size == size;
-            let label = if is_selected {
-                format!("✓ {} samples", size)
-            } else {
-                format!("{} samples", size)
-            };
+            let base_label = format!("{} samples", size);
+            let label = Self::format_label_with_checkmark(&base_label, is_selected);
             let item = MenuItem::new(&label, true, None);
             buffer_submenu
                 .append(&item)
@@ -1070,5 +1066,198 @@ mod tests {
         if let Some(TrayCommand::UpdateLanguage(Some(lang))) = cmd {
             assert_eq!(lang, "en");
         }
+    }
+
+    // Helper function tests
+    #[test]
+    fn test_format_label_with_checkmark() {
+        assert_eq!(
+            TrayManager::format_label_with_checkmark("test", true),
+            "✓ test"
+        );
+        assert_eq!(
+            TrayManager::format_label_with_checkmark("test", false),
+            "test"
+        );
+    }
+
+    #[test]
+    fn test_format_hotkey_display() {
+        let mods = vec!["Command".to_owned(), "Shift".to_owned()];
+        assert_eq!(
+            TrayManager::format_hotkey_display(&mods, "V"),
+            "[\"Command\", \"Shift\"]+V"
+        );
+    }
+
+    #[test]
+    fn test_is_hotkey_selected() {
+        let config = create_test_config(); // Command+Shift+V
+        assert!(TrayManager::is_hotkey_selected(
+            &config,
+            &["Command", "Shift"],
+            "V"
+        ));
+        assert!(!TrayManager::is_hotkey_selected(
+            &config,
+            &["Control", "Option"],
+            "Z"
+        ));
+    }
+
+    // Comprehensive parse_menu_event tests
+    #[test]
+    fn test_parse_menu_event_all_hotkeys() {
+        // Test all 4 hotkey options
+        let cmd = TrayManager::parse_menu_event("Control+Option+Z");
+        if let Some(TrayCommand::UpdateHotkey { modifiers, key }) = cmd {
+            assert_eq!(modifiers, vec!["Control", "Option"]);
+            assert_eq!(key, "Z");
+        } else {
+            panic!("Expected UpdateHotkey");
+        }
+
+        let cmd = TrayManager::parse_menu_event("Command+Shift+V");
+        if let Some(TrayCommand::UpdateHotkey { modifiers, key }) = cmd {
+            assert_eq!(modifiers, vec!["Command", "Shift"]);
+            assert_eq!(key, "V");
+        } else {
+            panic!("Expected UpdateHotkey");
+        }
+
+        let cmd = TrayManager::parse_menu_event("Command+Option+V");
+        if let Some(TrayCommand::UpdateHotkey { modifiers, key }) = cmd {
+            assert_eq!(modifiers, vec!["Command", "Option"]);
+            assert_eq!(key, "V");
+        } else {
+            panic!("Expected UpdateHotkey");
+        }
+
+        let cmd = TrayManager::parse_menu_event("Control+Shift+Space");
+        if let Some(TrayCommand::UpdateHotkey { modifiers, key }) = cmd {
+            assert_eq!(modifiers, vec!["Control", "Shift"]);
+            assert_eq!(key, "Space");
+        } else {
+            panic!("Expected UpdateHotkey");
+        }
+    }
+
+    #[test]
+    fn test_parse_menu_event_all_models() {
+        // Test all 4 model options
+        for model in &["tiny", "base", "small", "medium"] {
+            let cmd = TrayManager::parse_menu_event(model);
+            if let Some(TrayCommand::UpdateModel { name }) = cmd {
+                assert_eq!(name, *model);
+            } else {
+                panic!("Expected UpdateModel for {}", model);
+            }
+        }
+    }
+
+    #[test]
+    fn test_parse_menu_event_all_threads() {
+        // Test all 4 thread options
+        for threads in &[2, 4, 6, 8] {
+            let input = format!("{} threads", threads);
+            let cmd = TrayManager::parse_menu_event(&input);
+            assert_eq!(cmd, Some(TrayCommand::UpdateThreads(*threads)));
+        }
+    }
+
+    #[test]
+    fn test_parse_menu_event_all_beam_sizes() {
+        // Test all 5 beam size options
+        for beam in &[1, 3, 5, 8, 10] {
+            let input = format!("Beam size {}", beam);
+            let cmd = TrayManager::parse_menu_event(&input);
+            assert_eq!(cmd, Some(TrayCommand::UpdateBeamSize(*beam)));
+        }
+    }
+
+    #[test]
+    fn test_parse_menu_event_all_languages() {
+        // Test Auto-detect
+        let cmd = TrayManager::parse_menu_event("Auto-detect");
+        assert_eq!(cmd, Some(TrayCommand::UpdateLanguage(None)));
+
+        // Test all 5 language options
+        let languages = [
+            ("English", "en"),
+            ("Polish", "pl"),
+            ("Spanish", "es"),
+            ("French", "fr"),
+            ("German", "de"),
+        ];
+        for (display, code) in &languages {
+            let cmd = TrayManager::parse_menu_event(display);
+            if let Some(TrayCommand::UpdateLanguage(Some(lang))) = cmd {
+                assert_eq!(lang, *code);
+            } else {
+                panic!("Expected UpdateLanguage for {}", display);
+            }
+        }
+    }
+
+    #[test]
+    fn test_parse_menu_event_all_buffer_sizes() {
+        // Test all 4 buffer size options
+        for size in &[512, 1024, 2048, 4096] {
+            let input = format!("{} samples", size);
+            let cmd = TrayManager::parse_menu_event(&input);
+            assert_eq!(cmd, Some(TrayCommand::UpdateBufferSize(*size)));
+        }
+    }
+
+    #[test]
+    fn test_parse_menu_event_toggles_and_actions() {
+        assert_eq!(
+            TrayManager::parse_menu_event("Preload Model"),
+            Some(TrayCommand::TogglePreload)
+        );
+        assert_eq!(
+            TrayManager::parse_menu_event("Telemetry"),
+            Some(TrayCommand::ToggleTelemetry)
+        );
+        assert_eq!(
+            TrayManager::parse_menu_event("Open Config File"),
+            Some(TrayCommand::OpenConfigFile)
+        );
+    }
+
+    #[test]
+    fn test_parse_menu_event_unknown_input() {
+        assert_eq!(TrayManager::parse_menu_event("Unknown Option"), None);
+        assert_eq!(TrayManager::parse_menu_event(""), None);
+        assert_eq!(TrayManager::parse_menu_event("Quit"), None);
+    }
+
+    #[test]
+    fn test_parse_menu_event_checkmark_stripping() {
+        // Verify checkmark is stripped for all command types
+        assert!(matches!(
+            TrayManager::parse_menu_event("✓ Control+Option+Z"),
+            Some(TrayCommand::UpdateHotkey { .. })
+        ));
+        assert!(matches!(
+            TrayManager::parse_menu_event("✓ base"),
+            Some(TrayCommand::UpdateModel { .. })
+        ));
+        assert_eq!(
+            TrayManager::parse_menu_event("✓ 8 threads"),
+            Some(TrayCommand::UpdateThreads(8))
+        );
+        assert_eq!(
+            TrayManager::parse_menu_event("✓ Beam size 10"),
+            Some(TrayCommand::UpdateBeamSize(10))
+        );
+        assert_eq!(
+            TrayManager::parse_menu_event("✓ Auto-detect"),
+            Some(TrayCommand::UpdateLanguage(None))
+        );
+        assert_eq!(
+            TrayManager::parse_menu_event("✓ 4096 samples"),
+            Some(TrayCommand::UpdateBufferSize(4096))
+        );
     }
 }
