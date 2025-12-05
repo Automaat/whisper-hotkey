@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Context, Result};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use tray_icon::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tray_icon::menu::{CheckMenuItem, Menu, MenuId, MenuItem, PredefinedMenuItem, Submenu};
 use tray_icon::{Icon, TrayIconBuilder};
 
 use crate::config::{Config, ModelType};
@@ -183,7 +183,7 @@ impl TrayManager {
         for (label, mods, key) in hotkeys {
             let is_selected = Self::is_hotkey_selected(config, &mods, key);
             let display_label = Self::format_label_with_checkmark(label, is_selected);
-            let item = MenuItem::new(&display_label, true, None);
+            let item = MenuItem::with_id(MenuId::new(label), &display_label, true, None);
             hotkey_submenu
                 .append(&item)
                 .context("failed to append hotkey item")?;
@@ -198,9 +198,9 @@ impl TrayManager {
 
         for model_type in models {
             let model_name = model_type.as_str();
-            let is_selected = config.model.model_type == Some(model_type);
+            let is_selected = config.model.effective_name() == model_name;
             let display_label = Self::format_label_with_checkmark(model_name, is_selected);
-            let item = MenuItem::new(&display_label, true, None);
+            let item = MenuItem::with_id(MenuId::new(model_name), &display_label, true, None);
             model_submenu
                 .append(&item)
                 .context("failed to append model item")?;
@@ -218,7 +218,7 @@ impl TrayManager {
             let is_selected = config.model.threads == threads;
             let base_label = format!("{} threads", threads);
             let label = Self::format_label_with_checkmark(&base_label, is_selected);
-            let item = MenuItem::new(&label, true, None);
+            let item = MenuItem::with_id(MenuId::new(&base_label), &label, true, None);
             threads_submenu
                 .append(&item)
                 .context("failed to append threads item")?;
@@ -233,7 +233,7 @@ impl TrayManager {
             let is_selected = config.model.beam_size == beam;
             let base_label = format!("Beam size {}", beam);
             let label = Self::format_label_with_checkmark(&base_label, is_selected);
-            let item = MenuItem::new(&label, true, None);
+            let item = MenuItem::with_id(MenuId::new(&base_label), &label, true, None);
             beam_submenu
                 .append(&item)
                 .context("failed to append beam item")?;
@@ -259,7 +259,7 @@ impl TrayManager {
         for (label, lang_code) in languages {
             let is_selected = config.model.language.as_deref() == lang_code;
             let display_label = Self::format_label_with_checkmark(label, is_selected);
-            let item = MenuItem::new(&display_label, true, None);
+            let item = MenuItem::with_id(MenuId::new(label), &display_label, true, None);
             lang_submenu
                 .append(&item)
                 .context("failed to append language item")?;
@@ -274,7 +274,7 @@ impl TrayManager {
             let is_selected = config.audio.buffer_size == size;
             let base_label = format!("{} samples", size);
             let label = Self::format_label_with_checkmark(&base_label, is_selected);
-            let item = MenuItem::new(&label, true, None);
+            let item = MenuItem::with_id(MenuId::new(&base_label), &label, true, None);
             buffer_submenu
                 .append(&item)
                 .context("failed to append buffer item")?;
