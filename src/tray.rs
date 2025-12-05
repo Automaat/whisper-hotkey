@@ -1110,35 +1110,31 @@ mod tests {
     fn test_parse_menu_event_all_hotkeys() {
         // Test all 4 hotkey options
         let cmd = TrayManager::parse_menu_event("Control+Option+Z");
+        assert!(matches!(cmd, Some(TrayCommand::UpdateHotkey { .. })));
         if let Some(TrayCommand::UpdateHotkey { modifiers, key }) = cmd {
             assert_eq!(modifiers, vec!["Control", "Option"]);
             assert_eq!(key, "Z");
-        } else {
-            panic!("Expected UpdateHotkey");
         }
 
         let cmd = TrayManager::parse_menu_event("Command+Shift+V");
+        assert!(matches!(cmd, Some(TrayCommand::UpdateHotkey { .. })));
         if let Some(TrayCommand::UpdateHotkey { modifiers, key }) = cmd {
             assert_eq!(modifiers, vec!["Command", "Shift"]);
             assert_eq!(key, "V");
-        } else {
-            panic!("Expected UpdateHotkey");
         }
 
         let cmd = TrayManager::parse_menu_event("Command+Option+V");
+        assert!(matches!(cmd, Some(TrayCommand::UpdateHotkey { .. })));
         if let Some(TrayCommand::UpdateHotkey { modifiers, key }) = cmd {
             assert_eq!(modifiers, vec!["Command", "Option"]);
             assert_eq!(key, "V");
-        } else {
-            panic!("Expected UpdateHotkey");
         }
 
         let cmd = TrayManager::parse_menu_event("Control+Shift+Space");
+        assert!(matches!(cmd, Some(TrayCommand::UpdateHotkey { .. })));
         if let Some(TrayCommand::UpdateHotkey { modifiers, key }) = cmd {
             assert_eq!(modifiers, vec!["Control", "Shift"]);
             assert_eq!(key, "Space");
-        } else {
-            panic!("Expected UpdateHotkey");
         }
     }
 
@@ -1147,10 +1143,9 @@ mod tests {
         // Test all 4 model options
         for model in &["tiny", "base", "small", "medium"] {
             let cmd = TrayManager::parse_menu_event(model);
+            assert!(matches!(cmd, Some(TrayCommand::UpdateModel { .. })));
             if let Some(TrayCommand::UpdateModel { name }) = cmd {
                 assert_eq!(name, *model);
-            } else {
-                panic!("Expected UpdateModel for {}", model);
             }
         }
     }
@@ -1191,10 +1186,9 @@ mod tests {
         ];
         for (display, code) in &languages {
             let cmd = TrayManager::parse_menu_event(display);
+            assert!(matches!(cmd, Some(TrayCommand::UpdateLanguage(Some(_)))));
             if let Some(TrayCommand::UpdateLanguage(Some(lang))) = cmd {
                 assert_eq!(lang, *code);
-            } else {
-                panic!("Expected UpdateLanguage for {}", display);
             }
         }
     }
