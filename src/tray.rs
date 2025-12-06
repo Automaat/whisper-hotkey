@@ -1,4 +1,7 @@
 use anyhow::{anyhow, Context, Result};
+use cocoa::appkit::NSScreen;
+use cocoa::base::id;
+use cocoa::foundation::NSArray;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tray_icon::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
@@ -86,11 +89,20 @@ pub struct TrayManager {
 
 impl TrayManager {
     pub fn new(config: &Config, state: Arc<Mutex<AppState>>) -> Result<Self> {
+        // Detect display scale for proper retina support
+        let scale = Self::detect_display_scale();
+
         // Preload all three icons into cache
         let mut cached_icons = HashMap::new();
-        cached_icons.insert(AppState::Idle, Self::load_icon(AppState::Idle)?);
-        cached_icons.insert(AppState::Recording, Self::load_icon(AppState::Recording)?);
-        cached_icons.insert(AppState::Processing, Self::load_icon(AppState::Processing)?);
+        cached_icons.insert(AppState::Idle, Self::load_icon(AppState::Idle, scale)?);
+        cached_icons.insert(
+            AppState::Recording,
+            Self::load_icon(AppState::Recording, scale)?,
+        );
+        cached_icons.insert(
+            AppState::Processing,
+            Self::load_icon(AppState::Processing, scale)?,
+        );
 
         let tray = Self::build_tray(config, AppState::Idle, &cached_icons)?;
 
@@ -100,6 +112,26 @@ impl TrayManager {
             current_icon_state: AppState::Idle,
             cached_icons,
         })
+    }
+
+    /// Detect display scale factor (1.0 for regular, 2.0 for retina)
+    ///
+    /// # Safety
+    /// Uses Cocoa FFI to query `NSScreen` backing scale factor:
+    /// - `NSScreen::screens()` returns a retained `NSArray` (non-null by Cocoa contract)
+    /// - `objectAtIndex(0)` returns a valid `NSScreen*` for the lifetime of this function
+    /// - `backingScaleFactor` is a safe getter with no side effects
+    fn detect_display_scale() -> f64 {
+        unsafe {
+            let screens = NSScreen::screens(cocoa::base::nil);
+            // NSScreen::screens() returns an autoreleased NSArray (non-null by Cocoa)
+            if screens.is_null() || NSArray::count(screens) == 0 {
+                // Fallback to retina if no screens detected (most modern Macs)
+                return 2.0;
+            }
+            let screen: id = screens.objectAtIndex(0);
+            NSScreen::backingScaleFactor(screen)
+        }
     }
 
     fn build_tray(
@@ -113,35 +145,44 @@ impl TrayManager {
             .clone();
         let menu = Self::build_menu(config, Some(app_state))?;
 
-        TrayIconBuilder::new()
+        let mut builder = TrayIconBuilder::new()
             .with_menu(Box::new(menu))
             .with_tooltip("Whisper Hotkey")
-            .with_icon(icon)
-            .build()
-            .context("failed to build tray icon")
+            .with_icon(icon);
+
+        // Only use template mode for idle state (adaptive black/white)
+        // Recording/processing states use colored icons
+        if app_state == AppState::Idle {
+            builder = builder.with_icon_as_template(true);
+        }
+
+        builder.build().context("failed to build tray icon")
     }
 
-    fn load_icon(state: AppState) -> Result<Icon> {
-        // Load appropriate icon based on state
+    fn load_icon(state: AppState, scale: f64) -> Result<Icon> {
+        // Load appropriate icon based on state and display scale
+        // Use 16px for @1x displays, 32px for @2x (retina) displays
+        let size_suffix = if scale >= 2.0 { "32" } else { "16" };
+
         let icon_filename = match state {
-            AppState::Idle => "icon-32.png",
-            AppState::Recording => "icon-recording-32.png",
-            AppState::Processing => "icon-processing-32.png",
+            AppState::Idle => format!("icon-{size_suffix}.png"),
+            AppState::Recording => format!("icon-recording-{size_suffix}.png"),
+            AppState::Processing => format!("icon-processing-{size_suffix}.png"),
         };
 
         // Try to load from app bundle Resources folder first (for installed apps)
         // exe_path is something like: /Applications/WhisperHotkey.app/Contents/MacOS/WhisperHotkey
-        // We want: /Applications/WhisperHotkey.app/Contents/Resources/icon-32.png
+        // We want: /Applications/WhisperHotkey.app/Contents/Resources/icon-16.png or icon-32.png
         let icon_path = std::env::current_exe()
             .ok()
             .and_then(|exe_path| exe_path.parent().map(std::path::Path::to_path_buf))
             .and_then(|macos_dir| macos_dir.parent().map(std::path::Path::to_path_buf))
-            .map(|contents_dir| contents_dir.join("Resources").join(icon_filename))
+            .map(|contents_dir| contents_dir.join("Resources").join(&icon_filename))
             .filter(|path| path.exists())
             .unwrap_or_else(|| {
-                // Fallback to source directory (for development)
+                // Fallback to assets directory (for development)
                 std::path::PathBuf::from(format!(
-                    "{}/{}",
+                    "{}/assets/{}",
                     env!("CARGO_MANIFEST_DIR"),
                     icon_filename
                 ))
@@ -152,7 +193,8 @@ impl TrayManager {
         let image = image::open(&icon_path)
             .with_context(|| {
                 format!(
-                    "failed to load {icon_filename} from {}",
+                    "failed to load {} from {}",
+                    icon_filename,
                     icon_path.display()
                 )
             })?
@@ -643,20 +685,39 @@ mod tests {
 
     #[test]
     fn test_load_icon_idle() {
-        let result = TrayManager::load_icon(AppState::Idle);
+        let result = TrayManager::load_icon(AppState::Idle, 2.0);
         assert!(result.is_ok(), "Should load idle icon");
     }
 
     #[test]
     fn test_load_icon_recording() {
-        let result = TrayManager::load_icon(AppState::Recording);
+        let result = TrayManager::load_icon(AppState::Recording, 2.0);
         assert!(result.is_ok(), "Should load recording icon");
     }
 
     #[test]
     fn test_load_icon_processing() {
-        let result = TrayManager::load_icon(AppState::Processing);
+        let result = TrayManager::load_icon(AppState::Processing, 2.0);
         assert!(result.is_ok(), "Should load processing icon");
+    }
+
+    #[test]
+    fn test_load_icon_scale_selection() {
+        // Test that @1x displays load 16px icons
+        let result = TrayManager::load_icon(AppState::Idle, 1.0);
+        assert!(result.is_ok(), "Should load 16px icon for @1x display");
+
+        // Test that @2x displays load 32px icons
+        let result = TrayManager::load_icon(AppState::Idle, 2.0);
+        assert!(result.is_ok(), "Should load 32px icon for @2x display");
+
+        // Test edge case: exactly 2.0
+        let result = TrayManager::load_icon(AppState::Recording, 2.0);
+        assert!(result.is_ok(), "Should load 32px icon at scale=2.0");
+
+        // Test all states work with both scales
+        let result = TrayManager::load_icon(AppState::Processing, 1.0);
+        assert!(result.is_ok(), "Should load 16px processing icon");
     }
 
     #[test]
@@ -749,15 +810,15 @@ mod tests {
         let mut cached_icons = HashMap::new();
         cached_icons.insert(
             AppState::Idle,
-            TrayManager::load_icon(AppState::Idle).unwrap(),
+            TrayManager::load_icon(AppState::Idle, 2.0).unwrap(),
         );
         cached_icons.insert(
             AppState::Recording,
-            TrayManager::load_icon(AppState::Recording).unwrap(),
+            TrayManager::load_icon(AppState::Recording, 2.0).unwrap(),
         );
         cached_icons.insert(
             AppState::Processing,
-            TrayManager::load_icon(AppState::Processing).unwrap(),
+            TrayManager::load_icon(AppState::Processing, 2.0).unwrap(),
         );
 
         // Test Idle state
