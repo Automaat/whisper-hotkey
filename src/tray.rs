@@ -927,7 +927,7 @@ mod tests {
     #[ignore = "requires main thread for Menu creation on macOS"]
     fn test_build_menu_model_selection() {
         let mut config = create_menu_test_config();
-        config.model.model_type = Some(ModelType::Small);
+        config.model.model_type = ModelType::Small;
         let menu = TrayManager::build_menu(&config, Some(AppState::Idle)).unwrap();
 
         // Find Model submenu
@@ -1421,7 +1421,7 @@ mod tests {
     #[test]
     fn test_build_menu_config_models() {
         let mut config = create_menu_test_config();
-        config.model.model_type = Some(ModelType::Tiny);
+        config.model.model_type = ModelType::Tiny;
         let menu_config = TrayManager::build_menu_config(&config, None);
 
         assert_eq!(menu_config.models.len(), 12);
