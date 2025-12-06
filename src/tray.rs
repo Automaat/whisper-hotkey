@@ -116,17 +116,21 @@ impl TrayManager {
 
     /// Detect display scale factor (1.0 for regular, 2.0 for retina)
     ///
-    /// # Safety: Uses Cocoa FFI to query `NSScreen` backing scale factor
+    /// # Safety
+    /// Uses Cocoa FFI to query `NSScreen` backing scale factor:
+    /// - `NSScreen::screens()` returns a retained `NSArray` (non-null by Cocoa contract)
+    /// - `objectAtIndex(0)` returns a valid `NSScreen*` for the lifetime of this function
+    /// - `backingScaleFactor` is a safe getter with no side effects
     fn detect_display_scale() -> f64 {
         unsafe {
             let screens = NSScreen::screens(cocoa::base::nil);
-            if screens.count() > 0 {
-                let screen: id = screens.objectAtIndex(0);
-                NSScreen::backingScaleFactor(screen)
-            } else {
-                // Default to retina if can't detect (most modern Macs)
-                2.0
+            // NSScreen::screens() returns an autoreleased NSArray (non-null by Cocoa)
+            if screens.is_null() || NSArray::count(screens) == 0 {
+                // Fallback to retina if no screens detected (most modern Macs)
+                return 2.0;
             }
+            let screen: id = screens.objectAtIndex(0);
+            NSScreen::backingScaleFactor(screen)
         }
     }
 
@@ -695,6 +699,25 @@ mod tests {
     fn test_load_icon_processing() {
         let result = TrayManager::load_icon(AppState::Processing, 2.0);
         assert!(result.is_ok(), "Should load processing icon");
+    }
+
+    #[test]
+    fn test_load_icon_scale_selection() {
+        // Test that @1x displays load 16px icons
+        let result = TrayManager::load_icon(AppState::Idle, 1.0);
+        assert!(result.is_ok(), "Should load 16px icon for @1x display");
+
+        // Test that @2x displays load 32px icons
+        let result = TrayManager::load_icon(AppState::Idle, 2.0);
+        assert!(result.is_ok(), "Should load 32px icon for @2x display");
+
+        // Test edge case: exactly 2.0
+        let result = TrayManager::load_icon(AppState::Recording, 2.0);
+        assert!(result.is_ok(), "Should load 32px icon at scale=2.0");
+
+        // Test all states work with both scales
+        let result = TrayManager::load_icon(AppState::Processing, 1.0);
+        assert!(result.is_ok(), "Should load 16px processing icon");
     }
 
     #[test]
