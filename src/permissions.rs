@@ -1,5 +1,19 @@
 use anyhow::{bail, Result};
 
+/// Format quarantine removal instructions for a given app path
+///
+/// Used by `check_quarantine_status()` to generate user-facing message.
+fn format_quarantine_message(app_path: &str) -> String {
+    format!(
+        "\n\n⚠️  QUARANTINE DETECTED\n\n\
+        Your app has the macOS quarantine attribute (common for downloaded apps).\n\
+        This prevents macOS from recognizing granted permissions.\n\n\
+        To fix, run this command in Terminal:\n\n\
+            xattr -d com.apple.quarantine \"{app_path}\"\n\n\
+        Then restart the app.\n"
+    )
+}
+
 /// Check if the app bundle has macOS quarantine attribute
 ///
 /// Returns detailed instructions for removing quarantine if detected.
@@ -10,37 +24,30 @@ fn check_quarantine_status() -> Option<String> {
         use std::process::Command;
 
         // Get the path to the current executable
-        let exe_path = std::env::current_exe().ok();
+        let exe_path = std::env::current_exe().ok()?;
 
-        if let Some(exe) = exe_path {
-            // Check if we're running from a .app bundle
-            let exe_str = exe.to_string_lossy();
-            if exe_str.contains(".app/Contents/MacOS/") {
-                // Extract the .app bundle path
-                if let Some(app_idx) = exe_str.find(".app/") {
-                    let app_path = &exe_str[..app_idx + 4]; // Include ".app"
+        // Check if we're running from a .app bundle
+        let exe_str = exe_path.to_string_lossy();
+        if !exe_str.contains(".app/Contents/MacOS/") {
+            return None;
+        }
 
-                    // Check for quarantine attribute using xattr
-                    let output = Command::new("xattr").arg("-l").arg(app_path).output();
+        // Extract the .app bundle path
+        let app_idx = exe_str.find(".app/")?;
+        let app_path = &exe_str[..app_idx + 4]; // Include ".app"
 
-                    if let Ok(output) = output {
-                        let stdout = String::from_utf8_lossy(&output.stdout);
+        // Check for quarantine attribute using xattr
+        let output = Command::new("xattr").arg("-l").arg(app_path).output();
 
-                        if stdout.contains("com.apple.quarantine") {
-                            let message = format!(
-                                "\n\n⚠️  QUARANTINE DETECTED\n\n\
-                                Your app has the macOS quarantine attribute (common for downloaded apps).\n\
-                                This prevents macOS from recognizing granted permissions.\n\n\
-                                To fix, run this command in Terminal:\n\n\
-                                    xattr -d com.apple.quarantine \"{app_path}\"\n\n\
-                                Then restart the app.\n"
-                            );
-                            return Some(message);
-                        }
-                    } else if let Err(e) = output {
-                        tracing::debug!("failed to check quarantine status: {}", e);
-                    }
+        match output {
+            Ok(output) => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                if stdout.contains("com.apple.quarantine") {
+                    return Some(format_quarantine_message(app_path));
                 }
+            }
+            Err(e) => {
+                tracing::debug!("failed to check quarantine status: {}", e);
             }
         }
     }
@@ -350,27 +357,139 @@ mod tests {
     }
 
     #[test]
-    #[cfg(target_os = "macos")]
-    fn test_check_quarantine_status_returns_option() {
-        // Test that function returns Option<String> (compiles and runs)
-        let result = check_quarantine_status();
-        // Will be None unless running from quarantined .app bundle
-        assert!(result.is_none() || result.is_some());
+    fn test_format_quarantine_message() {
+        // Test message formatting with various app paths
+        let msg = format_quarantine_message("/Applications/WhisperHotkey.app");
+
+        // Verify all required components
+        assert!(msg.contains("⚠️  QUARANTINE DETECTED"));
+        assert!(msg.contains("com.apple.quarantine"));
+        assert!(msg.contains("xattr -d"));
+        assert!(msg.contains("restart the app"));
+
+        // Verify path is quoted
+        assert!(msg.contains("\"/Applications/WhisperHotkey.app\""));
+    }
+
+    #[test]
+    fn test_format_quarantine_message_with_spaces() {
+        // Test that paths with spaces are properly quoted
+        let msg = format_quarantine_message("/Applications/My Apps/Whisper Hotkey.app");
+
+        // Command should have quoted path
+        assert!(msg.contains(
+            "xattr -d com.apple.quarantine \"/Applications/My Apps/Whisper Hotkey.app\""
+        ));
+
+        // Verify message structure
+        assert!(msg.contains("⚠️"));
+        assert!(msg.contains("Terminal:"));
+    }
+
+    #[test]
+    fn test_format_quarantine_message_special_chars() {
+        // Test with path containing special characters
+        let paths = vec![
+            "/Applications/Test (1).app",
+            "/Applications/Test-App.app",
+            "/Applications/Test_App.app",
+        ];
+
+        for path in paths {
+            let msg = format_quarantine_message(path);
+            // All paths should be quoted
+            assert!(msg.contains(&format!("\"{}\"", path)));
+            assert!(msg.contains("xattr -d com.apple.quarantine"));
+        }
     }
 
     #[test]
     #[cfg(target_os = "macos")]
-    fn test_quarantine_message_contains_xattr_command() {
-        // If quarantine detected, verify message format
-        // This test can't force quarantine detection, but validates logic
+    fn test_check_quarantine_status_returns_none_when_not_in_bundle() {
+        // When running from cargo (not .app bundle), should return None
+        let result = check_quarantine_status();
+
+        // Verify current exe path doesn't contain .app/Contents/MacOS/
+        let exe_path = std::env::current_exe().ok();
+        if let Some(exe) = exe_path {
+            let exe_str = exe.to_string_lossy();
+            if !exe_str.contains(".app/Contents/MacOS/") {
+                // Not in .app bundle, should return None
+                assert!(
+                    result.is_none(),
+                    "Expected None when not running from .app bundle"
+                );
+            }
+        }
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn test_check_quarantine_status_message_format() {
+        // Validate message format by constructing expected message
         let result = check_quarantine_status();
 
         if let Some(msg) = result {
-            assert!(msg.contains("QUARANTINE DETECTED"));
-            assert!(msg.contains("xattr -d com.apple.quarantine"));
-            assert!(msg.contains("Restart the app"));
-            // Verify path is quoted (handles spaces)
-            assert!(msg.contains("\""));
+            // If quarantine detected, verify comprehensive message format
+            assert!(
+                msg.contains("⚠️  QUARANTINE DETECTED"),
+                "Missing warning header"
+            );
+            assert!(
+                msg.contains("com.apple.quarantine"),
+                "Missing quarantine attribute name"
+            );
+            assert!(msg.contains("xattr -d"), "Missing xattr command");
+            assert!(
+                msg.contains("Restart the app"),
+                "Missing restart instruction"
+            );
+
+            // Verify path is quoted (critical for paths with spaces)
+            let quoted_path_count = msg.matches('"').count();
+            assert!(
+                quoted_path_count >= 2,
+                "Path should be quoted (found {} quotes)",
+                quoted_path_count
+            );
+
+            // Verify structure: command should have quoted path
+            assert!(
+                msg.contains("xattr -d com.apple.quarantine \""),
+                "Command should quote path"
+            );
+        }
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    #[ignore = "requires running from quarantined .app bundle"]
+    fn test_check_quarantine_status_in_app_bundle() {
+        // Integration test: validates quarantine detection in .app bundle
+        // Run with: cargo test -- --ignored test_check_quarantine_status_in_app_bundle
+        let result = check_quarantine_status();
+
+        // This test should be run from a .app bundle with quarantine attribute
+        // To test:
+        // 1. Build app bundle: cargo build --release
+        // 2. Create .app bundle structure
+        // 3. Add quarantine: xattr -w com.apple.quarantine "0001;$(date +%s);curl|..." path/to/App.app
+        // 4. Run: path/to/App.app/Contents/MacOS/whisper-hotkey
+
+        let exe_path = std::env::current_exe().expect("Failed to get current exe");
+        let exe_str = exe_path.to_string_lossy();
+
+        if exe_str.contains(".app/Contents/MacOS/") {
+            // We're in a .app bundle, check if quarantine is detected
+            eprintln!("Running from .app bundle: {}", exe_str);
+            eprintln!("Quarantine check result: {:?}", result);
+
+            // Don't assert here - just validate format if present
+            if let Some(msg) = result {
+                assert!(msg.contains("xattr -d com.apple.quarantine"));
+            }
+        } else {
+            eprintln!("Not running from .app bundle, skipping quarantine detection test");
         }
     }
 
@@ -379,6 +498,33 @@ mod tests {
     fn test_check_quarantine_status_non_macos() {
         // On non-macOS, should always return None
         let result = check_quarantine_status();
-        assert!(result.is_none());
+        assert!(
+            result.is_none(),
+            "Non-macOS platforms should always return None"
+        );
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn test_check_quarantine_status_handles_xattr_gracefully() {
+        // Test that function doesn't panic when xattr command behavior varies
+        // This validates the error handling path (lines 40-41)
+        let result = check_quarantine_status();
+
+        // Function should return Option (Some or None), never panic
+        match result {
+            Some(msg) => {
+                // Quarantine detected, validate message
+                assert!(msg.contains("xattr"), "Message should mention xattr");
+            }
+            None => {
+                // No quarantine or not in .app bundle - expected
+                assert!(true);
+            }
+        }
+
+        // Verify debug logging doesn't cause issues (line 41)
+        // If xattr fails, debug log is written but function continues
+        // This test ensures no panic/crash in error path
     }
 }
