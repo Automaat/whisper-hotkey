@@ -215,11 +215,12 @@ const fn default_threads() -> usize {
 }
 
 const fn default_beam_size() -> usize {
-    5 // Balance speed/accuracy
+    1 // Greedy decoding (fast)
 }
 
-const fn default_language() -> Option<String> {
-    None // Auto-detect by default
+#[allow(clippy::unnecessary_wraps)]
+fn default_language() -> Option<String> {
+    Some("en".to_owned()) // English by default (skips auto-detect overhead)
 }
 
 impl<'de> Deserialize<'de> for ModelConfig {
@@ -357,8 +358,14 @@ impl Config {
 
         let config: Self = toml::from_str(&contents).context("failed to parse config TOML")?;
 
-        // Check if config had old fields (name/path) and save migrated version
-        let had_old_fields = contents.contains("name =") || contents.contains("path =");
+        // Check if [model] section had old fields (name/path) and save migrated version
+        let had_old_fields = contents
+            .split("[model]")
+            .nth(1)
+            .and_then(|model_section| model_section.split('[').next())
+            .is_some_and(|model_only| {
+                model_only.contains("name =") || model_only.contains("path =")
+            });
         if had_old_fields {
             tracing::info!("migrating config: removing deprecated 'name' and 'path' fields");
             config.save().context("failed to save migrated config")?;
@@ -395,8 +402,8 @@ sample_rate = 16000
 model_type = "small"
 preload = true
 threads = 4        # CPU threads for inference (4 optimal for M1/M2)
-beam_size = 5      # Beam search size (higher = more accurate but slower)
-# language = "pl"  # Language hint: "en", "pl", "es", etc. Omit for auto-detect
+beam_size = 1      # Beam search size (1 = greedy/fast, higher = more accurate but slower)
+language = "en"    # Language hint: "en", "pl", "es", etc. Omit for auto-detect
 
 [telemetry]
 enabled = true
@@ -677,7 +684,7 @@ log_path = "/tmp/crash.log"
         let config: Config = toml::from_str(toml).unwrap();
         // When not specified, should use defaults
         assert_eq!(config.model.threads, 4);
-        assert_eq!(config.model.beam_size, 5);
+        assert_eq!(config.model.beam_size, 1);
     }
 
     #[test]
