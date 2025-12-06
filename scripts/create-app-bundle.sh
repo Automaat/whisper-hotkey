@@ -36,15 +36,19 @@ fi
 cp resources/AppIcon.icns "$RESOURCES_DIR/"
 
 echo "🖼️  Copying menubar icons..."
-for icon in icon-32.png icon-recording-32.png icon-processing-32.png; do
-    if [ ! -f "$icon" ]; then
-        echo "❌ Error: Required menubar icon $icon not found."
+# Copy both 16px and 32px versions for proper @1x/@2x support
+for icon in icon-16.png icon-32.png icon-recording-16.png icon-recording-32.png icon-processing-16.png icon-processing-32.png; do
+    if [ ! -f "assets/$icon" ]; then
+        echo "❌ Error: Required menubar icon assets/$icon not found."
         exit 1
     fi
 done
-cp icon-32.png "$RESOURCES_DIR/"
-cp icon-recording-32.png "$RESOURCES_DIR/"
-cp icon-processing-32.png "$RESOURCES_DIR/"
+cp assets/icon-16.png "$RESOURCES_DIR/"
+cp assets/icon-32.png "$RESOURCES_DIR/"
+cp assets/icon-recording-16.png "$RESOURCES_DIR/"
+cp assets/icon-recording-32.png "$RESOURCES_DIR/"
+cp assets/icon-processing-16.png "$RESOURCES_DIR/"
+cp assets/icon-processing-32.png "$RESOURCES_DIR/"
 
 echo "📋 Copying Info.plist..."
 cat > "$CONTENTS_DIR/Info.plist" <<EOF
