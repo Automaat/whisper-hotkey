@@ -141,13 +141,18 @@ impl TrayManager {
             .clone();
         let menu = Self::build_menu(config, Some(app_state))?;
 
-        TrayIconBuilder::new()
+        let mut builder = TrayIconBuilder::new()
             .with_menu(Box::new(menu))
             .with_tooltip("Whisper Hotkey")
-            .with_icon(icon)
-            .with_icon_as_template(true)
-            .build()
-            .context("failed to build tray icon")
+            .with_icon(icon);
+
+        // Only use template mode for idle state (adaptive black/white)
+        // Recording/processing states use colored icons
+        if app_state == AppState::Idle {
+            builder = builder.with_icon_as_template(true);
+        }
+
+        builder.build().context("failed to build tray icon")
     }
 
     fn load_icon(state: AppState, scale: f64) -> Result<Icon> {
