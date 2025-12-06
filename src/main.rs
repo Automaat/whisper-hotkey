@@ -223,7 +223,7 @@ async fn main() -> Result<()> {
     // Helper to save config, log, and update menu after config changes
     fn save_and_update(
         config: &config::Config,
-        tray_manager: &tray::TrayManager,
+        tray_manager: &mut tray::TrayManager,
         success_msg: &str,
         requires_restart: bool,
     ) -> Result<()> {
@@ -283,7 +283,8 @@ async fn main() -> Result<()> {
                 tray::TrayCommand::UpdateHotkey { modifiers, key } => {
                     config.hotkey.modifiers = modifiers;
                     config.hotkey.key = key;
-                    if let Err(e) = save_and_update(&config, &tray_manager, "Hotkey updated", true)
+                    if let Err(e) =
+                        save_and_update(&config, &mut tray_manager, "Hotkey updated", true)
                     {
                         tracing::error!("failed to update config: {:?}", e);
                         println!("⚠ Failed to save config: {}", e);
@@ -291,7 +292,9 @@ async fn main() -> Result<()> {
                 }
                 tray::TrayCommand::UpdateModel { model_type } => {
                     config.model.model_type = model_type;
-                    if let Err(e) = save_and_update(&config, &tray_manager, "Model updated", true) {
+                    if let Err(e) =
+                        save_and_update(&config, &mut tray_manager, "Model updated", true)
+                    {
                         tracing::error!("failed to update config: {:?}", e);
                         println!("⚠ Failed to save config: {}", e);
                     }
@@ -300,7 +303,7 @@ async fn main() -> Result<()> {
                     config.model.threads = threads;
                     if let Err(e) = save_and_update(
                         &config,
-                        &tray_manager,
+                        &mut tray_manager,
                         &format!("Threads updated to {}", threads),
                         false,
                     ) {
@@ -312,7 +315,7 @@ async fn main() -> Result<()> {
                     config.model.beam_size = beam;
                     if let Err(e) = save_and_update(
                         &config,
-                        &tray_manager,
+                        &mut tray_manager,
                         &format!("Beam size updated to {}", beam),
                         false,
                     ) {
@@ -326,7 +329,7 @@ async fn main() -> Result<()> {
                         |l| format!("Language updated to {l}"),
                     );
                     config.model.language = lang;
-                    if let Err(e) = save_and_update(&config, &tray_manager, &msg, false) {
+                    if let Err(e) = save_and_update(&config, &mut tray_manager, &msg, false) {
                         tracing::error!("failed to update config: {:?}", e);
                         println!("⚠ Failed to save config: {}", e);
                     }
@@ -335,7 +338,7 @@ async fn main() -> Result<()> {
                     config.audio.buffer_size = size;
                     if let Err(e) = save_and_update(
                         &config,
-                        &tray_manager,
+                        &mut tray_manager,
                         &format!("Buffer size updated to {}", size),
                         true,
                     ) {
@@ -353,7 +356,7 @@ async fn main() -> Result<()> {
                             "disabled"
                         }
                     );
-                    if let Err(e) = save_and_update(&config, &tray_manager, &msg, true) {
+                    if let Err(e) = save_and_update(&config, &mut tray_manager, &msg, true) {
                         tracing::error!("failed to update config: {:?}", e);
                         println!("⚠ Failed to save config: {}", e);
                     }
@@ -368,7 +371,7 @@ async fn main() -> Result<()> {
                             "disabled"
                         }
                     );
-                    if let Err(e) = save_and_update(&config, &tray_manager, &msg, true) {
+                    if let Err(e) = save_and_update(&config, &mut tray_manager, &msg, true) {
                         tracing::error!("failed to update config: {:?}", e);
                         println!("⚠ Failed to save config: {}", e);
                     }
