@@ -10,27 +10,50 @@ Hold a hotkey, speak, release → text inserted at cursor. Privacy-first (100% l
 
 ## Quick Start
 
-### Option 1: Download DMG (Easiest)
+### Option 1: Homebrew (Recommended)
 
-**For end users - no build tools required:**
+**Easiest installation - no code signing issues:**
 
-1. **Download**: [Latest release](https://github.com/Automaat/whisper-hotkey/releases/latest) → `WhisperHotkey-*.dmg`
-2. **Install**: Open DMG, drag `WhisperHotkey.app` to `Applications`
-3. **Run**: Open from Applications
-4. **Permissions**: Grant Microphone + Accessibility when prompted
-5. **First run**: Downloads Whisper model (~466MB)
+```bash
+brew install Automaat/whisper-hotkey/whisper-hotkey
+```
+
+**First launch:**
+1. Open WhisperHotkey from Applications
+2. Grant permissions when prompted:
+   - Accessibility
+   - Input Monitoring
+   - Microphone
+3. App downloads Whisper model (~466MB)
 
 **Usage:**
-
 - Default hotkey: `Ctrl+Option+Z`
 - Press and hold → speak → release
 - Text appears at cursor
 
 **Configuration:** `~/.whisper-hotkey/config.toml`
 
+**Update:** `brew upgrade whisper-hotkey`
+
 ---
 
-### Option 2: Build from Source
+### Option 2: Download DMG
+
+**For users without Homebrew:**
+
+1. **Download**: [Latest release](https://github.com/Automaat/whisper-hotkey/releases/latest) → `WhisperHotkey-*.dmg`
+2. **Install**: Open DMG, drag `WhisperHotkey.app` to `Applications`
+3. **Remove quarantine** (if needed):
+   ```bash
+   xattr -d com.apple.quarantine /Applications/WhisperHotkey.app
+   ```
+4. **Run**: Open from Applications
+5. **Permissions**: Grant Microphone + Accessibility + Input Monitoring when prompted
+6. **First run**: Downloads Whisper model (~466MB)
+
+---
+
+### Option 3: Build from Source
 
 **Prerequisites:**
 
@@ -39,7 +62,7 @@ Hold a hotkey, speak, release → text inserted at cursor. Privacy-first (100% l
 - **mise** (optional, recommended: `curl https://mise.run | sh`)
 - **Permissions**: Microphone + Accessibility
 
-#### 2a: Automated Installer
+#### 3a: Automated Installer
 
 ```bash
 # Clone repo
@@ -66,7 +89,7 @@ The installer will:
 ./scripts/uninstall.sh
 ```
 
-#### 2b: Manual Build & Run
+#### 3b: Manual Build & Run
 
 ```bash
 # Clone repo
