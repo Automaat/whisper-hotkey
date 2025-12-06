@@ -4,7 +4,7 @@ use std::fs;
 use std::path::PathBuf;
 
 /// Whisper model type variants
-#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModelType {
     /// Tiny model (multilingual)
     Tiny,
@@ -32,6 +32,26 @@ pub enum ModelType {
     LargeV3,
 }
 
+// Custom serde to serialize as "base.en" instead of "BaseEn"
+impl Serialize for ModelType {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for ModelType {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Self::from_str(&s).map_err(serde::de::Error::custom)
+    }
+}
+
 impl ModelType {
     /// Get model name as string (e.g., "base.en")
     #[must_use]
@@ -52,9 +72,34 @@ impl ModelType {
         }
     }
 
-    /// Get default path for model
+    /// Parse model type from string (e.g., "base.en" -> `BaseEn`)
+    fn from_str(s: &str) -> Result<Self, String> {
+        match s {
+            "tiny" => Ok(Self::Tiny),
+            "tiny.en" => Ok(Self::TinyEn),
+            "base" => Ok(Self::Base),
+            "base.en" => Ok(Self::BaseEn),
+            "small" => Ok(Self::Small),
+            "small.en" => Ok(Self::SmallEn),
+            "medium" => Ok(Self::Medium),
+            "medium.en" => Ok(Self::MediumEn),
+            "large" => Ok(Self::Large),
+            "large-v1" => Ok(Self::LargeV1),
+            "large-v2" => Ok(Self::LargeV2),
+            "large-v3" => Ok(Self::LargeV3),
+            _ => Err(format!("unknown model type: {s}")),
+        }
+    }
+
+    /// Get model name for `HuggingFace` download (same as `as_str`)
     #[must_use]
-    pub fn default_path(self) -> String {
+    pub const fn model_name(self) -> &'static str {
+        self.as_str()
+    }
+
+    /// Get default path for model (as string with ~ for home)
+    #[must_use]
+    pub fn model_path(self) -> String {
         format!("~/.whisper-hotkey/models/ggml-{}.bin", self.as_str())
     }
 
@@ -75,6 +120,13 @@ impl ModelType {
             Self::LargeV2,
             Self::LargeV3,
         ]
+    }
+}
+
+#[allow(clippy::derivable_impls)] // We want Small as default, not Tiny (first variant)
+impl Default for ModelType {
+    fn default() -> Self {
+        Self::Small // Small is a good balance of speed/accuracy
     }
 }
 
@@ -120,31 +172,42 @@ pub struct AudioConfig {
 }
 
 /// Whisper model configuration
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Clone)]
 pub struct ModelConfig {
-    /// Model type (if set, auto-constructs name and path)
-    #[serde(default)]
-    pub model_type: Option<ModelType>,
-    /// Model name (e.g., "base.en") - deprecated, use `model_type` instead
-    #[serde(default)]
-    #[allow(dead_code)] // Used in Phase 4
-    pub name: Option<String>,
-    /// Path to model file - deprecated, use `model_type` instead
-    #[serde(default)]
-    #[allow(dead_code)] // Used in Phase 4
-    pub path: Option<String>,
+    /// Model type (e.g., "base.en", "small", "tiny")
+    pub model_type: ModelType,
     /// Preload model at startup
-    #[allow(dead_code)] // Used in Phase 4
     pub preload: bool,
     /// Number of CPU threads for inference
-    #[serde(default = "default_threads")]
     pub threads: usize,
     /// Beam search width (higher = slower but more accurate)
-    #[serde(default = "default_beam_size")]
     pub beam_size: usize,
     /// Language code (None = auto-detect)
-    #[serde(default = "default_language")]
     pub language: Option<String>,
+}
+
+// Helper struct for deserializing old config format
+#[derive(Deserialize)]
+struct ModelConfigHelper {
+    #[serde(default)]
+    model_type: Option<ModelType>,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    #[allow(dead_code)] // Needed for deserialization but not used (path is ignored)
+    path: Option<String>,
+    #[serde(default = "default_preload")]
+    preload: bool,
+    #[serde(default = "default_threads")]
+    threads: usize,
+    #[serde(default = "default_beam_size")]
+    beam_size: usize,
+    #[serde(default = "default_language")]
+    language: Option<String>,
+}
+
+const fn default_preload() -> bool {
+    true
 }
 
 const fn default_threads() -> usize {
@@ -160,23 +223,46 @@ fn default_language() -> Option<String> {
     Some("en".to_owned()) // English by default (skips auto-detect overhead)
 }
 
-impl ModelConfig {
-    /// Get effective model name (from `model_type` if set, else from name field)
-    #[must_use]
-    pub fn effective_name(&self) -> String {
-        self.model_type
-            .map(|t| t.as_str().to_owned())
-            .or_else(|| self.name.clone())
-            .unwrap_or_default()
-    }
+impl<'de> Deserialize<'de> for ModelConfig {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let helper = ModelConfigHelper::deserialize(deserializer)?;
 
-    /// Get effective model path (from `model_type` if set, else from path field)
-    #[must_use]
-    pub fn effective_path(&self) -> String {
-        self.model_type
-            .map(ModelType::default_path)
-            .or_else(|| self.path.clone())
-            .unwrap_or_default()
+        // Migrate from old format if model_type is not set
+        let model_type = if let Some(mt) = helper.model_type {
+            mt
+        } else if let Some(name) = helper.name {
+            // Try to parse name into ModelType
+            ModelType::from_str(&name).unwrap_or_default()
+        } else {
+            ModelType::default()
+        };
+
+        Ok(Self {
+            model_type,
+            preload: helper.preload,
+            threads: helper.threads,
+            beam_size: helper.beam_size,
+            language: helper.language,
+        })
+    }
+}
+
+impl Serialize for ModelConfig {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut state = serializer.serialize_struct("ModelConfig", 5)?;
+        state.serialize_field("model_type", &self.model_type)?;
+        state.serialize_field("preload", &self.preload)?;
+        state.serialize_field("threads", &self.threads)?;
+        state.serialize_field("beam_size", &self.beam_size)?;
+        state.serialize_field("language", &self.language)?;
+        state.end()
     }
 }
 
@@ -272,6 +358,19 @@ impl Config {
 
         let config: Self = toml::from_str(&contents).context("failed to parse config TOML")?;
 
+        // Check if [model] section had old fields (name/path) and save migrated version
+        let had_old_fields = contents
+            .split("[model]")
+            .nth(1)
+            .and_then(|model_section| model_section.split('[').next())
+            .is_some_and(|model_only| {
+                model_only.contains("name =") || model_only.contains("path =")
+            });
+        if had_old_fields {
+            tracing::info!("migrating config: removing deprecated 'name' and 'path' fields");
+            config.save().context("failed to save migrated config")?;
+        }
+
         Ok(config)
     }
 
@@ -300,7 +399,7 @@ buffer_size = 1024
 sample_rate = 16000
 
 [model]
-model_type = "BaseEn"
+model_type = "small"
 preload = true
 threads = 4        # CPU threads for inference (4 optimal for M1/M2)
 beam_size = 1      # Beam search size (1 = greedy/fast, higher = more accurate but slower)
@@ -401,8 +500,7 @@ buffer_size = 1024
 sample_rate = 16000
 
 [model]
-name = "small"
-path = "~/.whisper-hotkey/models/ggml-small.bin"
+model_type = "small"
 preload = true
 threads = 4
 beam_size = 5
@@ -416,7 +514,7 @@ log_path = "~/.whisper-hotkey/crash.log"
         assert_eq!(config.hotkey.key, "Z");
         assert_eq!(config.audio.buffer_size, 1024);
         assert_eq!(config.audio.sample_rate, 16000);
-        assert_eq!(config.model.name, Some("small".to_owned()));
+        assert_eq!(config.model.model_type, ModelType::Small);
         assert_eq!(config.model.threads, 4);
         assert_eq!(config.model.beam_size, 5);
         assert!(config.telemetry.enabled);
@@ -443,8 +541,7 @@ buffer_size = 1024
 sample_rate = 16000
 
 [model]
-name = "small"
-path = "~/models/ggml-small.bin"
+model_type = "small"
 preload = true
 "#;
         let result: Result<Config, _> = toml::from_str(toml);
@@ -463,8 +560,7 @@ buffer_size = 2048
 sample_rate = 16000
 
 [model]
-name = "base"
-path = "/usr/local/share/whisper/base.bin"
+model_type = "base"
 preload = false
 threads = 8
 beam_size = 10
@@ -484,8 +580,8 @@ log_path = "/tmp/test.log"
     }
 
     #[test]
-    fn test_model_config_effective_methods() {
-        // Test with model_type set (should use model_type)
+    fn test_model_config_migration() {
+        // Test with model_type (new format)
         let toml = r#"
 [hotkey]
 modifiers = ["Control"]
@@ -496,7 +592,7 @@ buffer_size = 1024
 sample_rate = 16000
 
 [model]
-model_type = "Small"
+model_type = "small"
 preload = true
 threads = 4
 beam_size = 5
@@ -506,13 +602,13 @@ enabled = true
 log_path = "~/.whisper-hotkey/crash.log"
 "#;
         let config: Config = toml::from_str(toml).unwrap();
-        assert_eq!(config.model.effective_name(), "small");
+        assert_eq!(config.model.model_type, ModelType::Small);
         assert_eq!(
-            config.model.effective_path(),
+            config.model.model_type.model_path(),
             "~/.whisper-hotkey/models/ggml-small.bin"
         );
 
-        // Test with name/path fields (fallback when model_type is None)
+        // Test migration from old format (name/path fields)
         let toml = r#"
 [hotkey]
 modifiers = ["Control"]
@@ -523,7 +619,7 @@ buffer_size = 1024
 sample_rate = 16000
 
 [model]
-name = "custom-model"
+name = "base.en"
 path = "/custom/path/model.bin"
 preload = true
 threads = 4
@@ -534,10 +630,15 @@ enabled = true
 log_path = "~/.whisper-hotkey/crash.log"
 "#;
         let config: Config = toml::from_str(toml).unwrap();
-        assert_eq!(config.model.effective_name(), "custom-model");
-        assert_eq!(config.model.effective_path(), "/custom/path/model.bin");
+        // Old name field should be migrated to model_type
+        assert_eq!(config.model.model_type, ModelType::BaseEn);
+        // Path is ignored, model_type determines the path
+        assert_eq!(
+            config.model.model_type.model_path(),
+            "~/.whisper-hotkey/models/ggml-base.en.bin"
+        );
 
-        // Test with neither set (should return empty string)
+        // Test with neither model_type nor name set (should use default)
         let toml = r#"
 [hotkey]
 modifiers = ["Control"]
@@ -557,8 +658,7 @@ enabled = true
 log_path = "~/.whisper-hotkey/crash.log"
 "#;
         let config: Config = toml::from_str(toml).unwrap();
-        assert_eq!(config.model.effective_name(), "");
-        assert_eq!(config.model.effective_path(), "");
+        assert_eq!(config.model.model_type, ModelType::Small); // Default
     }
 
     #[test]
@@ -584,7 +684,7 @@ log_path = "/tmp/crash.log"
         let config: Config = toml::from_str(toml).unwrap();
         // When not specified, should use defaults
         assert_eq!(config.model.threads, 4);
-        assert_eq!(config.model.beam_size, 5);
+        assert_eq!(config.model.beam_size, 1);
     }
 
     #[test]
@@ -659,7 +759,7 @@ log_path = "/test/log.txt"
         assert_eq!(config.hotkey.modifiers, vec!["Command", "Shift"]);
         assert_eq!(config.hotkey.key, "V");
         assert_eq!(config.audio.buffer_size, 2048);
-        assert_eq!(config.model.name, Some("base".to_owned()));
+        assert_eq!(config.model.model_type, ModelType::Base);
         assert!(!config.telemetry.enabled);
 
         // Restore original HOME
@@ -685,9 +785,7 @@ log_path = "/test/log.txt"
                 sample_rate: 16000,
             },
             model: ModelConfig {
-                model_type: Some(ModelType::Small),
-                name: None,
-                path: None,
+                model_type: ModelType::Small,
                 preload: true,
                 threads: 4,
                 beam_size: 5,
@@ -704,7 +802,7 @@ log_path = "/test/log.txt"
         assert!(serialized.contains("modifiers"));
         assert!(serialized.contains("Control"));
         assert!(serialized.contains("buffer_size"));
-        assert!(serialized.contains("Small"));
+        assert!(serialized.contains("small")); // model_type serializes as lowercase
     }
 
     #[test]
@@ -719,9 +817,7 @@ log_path = "/test/log.txt"
                 sample_rate: 16000,
             },
             model: ModelConfig {
-                model_type: None,
-                name: Some("base".to_owned()),
-                path: Some("/tmp/model.bin".to_owned()),
+                model_type: ModelType::Base,
                 preload: false,
                 threads: 8,
                 beam_size: 10,
@@ -740,7 +836,7 @@ log_path = "/test/log.txt"
         assert_eq!(deserialized.hotkey.modifiers, original.hotkey.modifiers);
         assert_eq!(deserialized.hotkey.key, original.hotkey.key);
         assert_eq!(deserialized.audio.buffer_size, original.audio.buffer_size);
-        assert_eq!(deserialized.model.name, original.model.name);
+        assert_eq!(deserialized.model.model_type, original.model.model_type);
         assert_eq!(deserialized.model.threads, original.model.threads);
         assert_eq!(deserialized.model.language, original.model.language);
         assert_eq!(deserialized.telemetry.enabled, original.telemetry.enabled);
@@ -899,7 +995,7 @@ log_path = "/tmp/test.log"
         assert_eq!(config.hotkey.key, "Z");
         assert_eq!(config.audio.buffer_size, 1024);
         assert_eq!(config.audio.sample_rate, 16000);
-        assert_eq!(config.model.model_type, Some(ModelType::Small));
+        assert_eq!(config.model.model_type, ModelType::Small);
         assert!(config.telemetry.enabled);
 
         // Restore HOME
@@ -961,7 +1057,7 @@ log_path = "/custom/log.txt"
         // Verify loaded from new config, not defaults
         assert_eq!(config.hotkey.key, "X");
         assert_eq!(config.audio.buffer_size, 4096);
-        assert_eq!(config.model.name, Some("large".to_owned()));
+        assert_eq!(config.model.model_type, ModelType::Large);
         assert!(!config.telemetry.enabled);
 
         // Old config should still exist (not migrated)
@@ -1004,9 +1100,7 @@ log_path = "/custom/log.txt"
                 sample_rate: 16000,
             },
             model: ModelConfig {
-                model_type: None,
-                name: Some("base".to_owned()),
-                path: Some("/test/base.bin".to_owned()),
+                model_type: ModelType::Base,
                 preload: true,
                 threads: 4,
                 beam_size: 5,

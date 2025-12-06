@@ -239,7 +239,7 @@ impl TrayManager {
             .iter()
             .map(|model_type| ModelOption {
                 name: model_type.as_str().to_owned(),
-                selected: config.model.effective_name() == model_type.as_str(),
+                selected: config.model.model_type == *model_type,
             })
             .collect();
 
@@ -726,9 +726,7 @@ mod tests {
                 sample_rate: 16000,
             },
             model: ModelConfig {
-                model_type: Some(ModelType::Small),
-                name: None,
-                path: None,
+                model_type: ModelType::Small,
                 preload: true,
                 threads: 4,
                 beam_size: 5,
@@ -870,9 +868,7 @@ mod tests {
                 key: "V".to_owned(),
             },
             model: ModelConfig {
-                model_type: Some(ModelType::Base),
-                name: None,
-                path: None,
+                model_type: ModelType::Base,
                 threads: 4,
                 beam_size: 5,
                 language: None,
@@ -931,7 +927,7 @@ mod tests {
     #[ignore = "requires main thread for Menu creation on macOS"]
     fn test_build_menu_model_selection() {
         let mut config = create_menu_test_config();
-        config.model.model_type = Some(ModelType::Small);
+        config.model.model_type = ModelType::Small;
         let menu = TrayManager::build_menu(&config, Some(AppState::Idle)).unwrap();
 
         // Find Model submenu
@@ -1425,7 +1421,7 @@ mod tests {
     #[test]
     fn test_build_menu_config_models() {
         let mut config = create_menu_test_config();
-        config.model.model_type = Some(ModelType::Tiny);
+        config.model.model_type = ModelType::Tiny;
         let menu_config = TrayManager::build_menu_config(&config, None);
 
         assert_eq!(menu_config.models.len(), 12);

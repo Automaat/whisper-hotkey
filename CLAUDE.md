@@ -33,10 +33,13 @@ modifiers = ["Command", "Shift"]
 
 [audio]
 sample_rate = 16000
-chunk_duration_ms = 10000
+buffer_size = 1024
 
 [model]
-path = "/usr/local/share/whisper/ggml-base.en.bin"
+model_type = "base.en"  # Options: tiny, base, small, medium, large, tiny.en, base.en, small.en, medium.en
+preload = true
+threads = 4
+beam_size = 5
 ```
 
 ---
