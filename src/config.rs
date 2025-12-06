@@ -132,7 +132,10 @@ impl Default for ModelType {
 
 // Helper functions for skip_serializing_if
 fn is_default_hotkey(val: &HotkeyConfig) -> bool {
-    val.modifiers == HotkeyConfig::default().modifiers && val.key == HotkeyConfig::default().key
+    val.modifiers.len() == 2
+        && val.modifiers[0] == "Control"
+        && val.modifiers[1] == "Option"
+        && val.key == "Z"
 }
 
 fn is_default_audio(val: &AudioConfig) -> bool {
@@ -141,17 +144,15 @@ fn is_default_audio(val: &AudioConfig) -> bool {
 }
 
 fn is_default_model(val: &ModelConfig) -> bool {
-    let default = ModelConfig::default();
-    val.model_type == default.model_type
-        && val.preload == default.preload
-        && val.threads == default.threads
-        && val.beam_size == default.beam_size
-        && val.language == default.language
+    val.model_type == ModelType::Small
+        && val.preload
+        && val.threads == 4
+        && val.beam_size == 1
+        && val.language.as_deref() == Some("en")
 }
 
 fn is_default_telemetry(val: &TelemetryConfig) -> bool {
-    val.enabled == TelemetryConfig::default().enabled
-        && val.log_path == TelemetryConfig::default().log_path
+    val.enabled && val.log_path == "~/.whisper-hotkey/crash.log"
 }
 
 fn is_default_recording(val: &RecordingConfig) -> bool {
@@ -429,7 +430,18 @@ impl Config {
             Self::create_default(&config_path).context("failed to create default config")?;
         }
 
-        let contents = fs::read_to_string(&config_path).context("failed to read config file")?;
+        let mut contents =
+            fs::read_to_string(&config_path).context("failed to read config file")?;
+
+        // Migrate to sparse format if config has content (create backup first)
+        // Skip if backup already exists (already migrated) or file is empty
+        let backup_path = config_path.with_extension("toml.bak");
+        if !contents.trim().is_empty() && !backup_path.exists() {
+            Self::migrate_to_sparse(&config_path)
+                .context("failed to migrate config to sparse format")?;
+            // Re-read contents after migration
+            contents = fs::read_to_string(&config_path).context("failed to read config file")?;
+        }
 
         let config: Self = toml::from_str(&contents).context("failed to parse config TOML")?;
 
@@ -444,14 +456,6 @@ impl Config {
         if had_old_fields {
             tracing::info!("migrating config: removing deprecated 'name' and 'path' fields");
             config.save().context("failed to save migrated config")?;
-        }
-
-        // Migrate to sparse format if config has content (not already migrated)
-        // Skip if backup already exists (already migrated) or file is empty
-        let backup_path = config_path.with_extension("toml.bak");
-        if !contents.trim().is_empty() && !backup_path.exists() {
-            Self::migrate_to_sparse(&config_path)
-                .context("failed to migrate config to sparse format")?;
         }
 
         Ok(config)
@@ -905,7 +909,7 @@ log_path = "/test/log.txt"
         assert!(serialized.contains("2048"));
         assert!(serialized.contains("base")); // model_type serializes as lowercase
         assert!(serialized.contains("beam_size"));
-        assert!(serialized.contains("5"));
+        assert!(serialized.contains('5'));
     }
 
     #[test]
@@ -1476,5 +1480,96 @@ unknown_param = "test"
         assert_eq!(config.hotkey.key, "M");
         assert_eq!(config.audio.buffer_size, 512);
         assert!(!config.recording.enabled);
+    }
+
+    #[test]
+    fn test_migrate_to_sparse() {
+        let _guard = HOME_TEST_LOCK.lock().unwrap();
+
+        let temp_base = env::temp_dir();
+        let test_home = temp_base.join(format!(
+            "whisper_test_sparse_migration_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+        ));
+        fs::create_dir_all(&test_home).unwrap();
+
+        let original_home = env::var("HOME").ok();
+        env::set_var("HOME", test_home.to_str().unwrap());
+
+        // Create config with all fields explicitly set (including defaults)
+        let config_path = test_home.join(".whisper-hotkey/config.toml");
+        fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+        let full_config = r#"[hotkey]
+modifiers = ["Control", "Option"]
+key = "Z"
+
+[audio]
+buffer_size = 1024
+sample_rate = 16000
+
+[model]
+model_type = "small"
+preload = true
+threads = 4
+beam_size = 1
+language = "en"
+
+[telemetry]
+enabled = true
+log_path = "~/.whisper-hotkey/crash.log"
+
+[recording]
+enabled = true
+retention_days = 7
+max_count = 100
+cleanup_interval_hours = 1
+"#;
+        fs::write(&config_path, full_config).unwrap();
+
+        // Verify backup doesn't exist yet
+        let backup_path = config_path.with_extension("toml.bak");
+        assert!(!backup_path.exists());
+
+        // Load config (should trigger sparse migration)
+        let config = Config::load().unwrap();
+
+        // Verify backup exists with original content
+        assert!(backup_path.exists());
+        let backup_contents = fs::read_to_string(&backup_path).unwrap();
+        assert_eq!(backup_contents.trim(), full_config.trim());
+
+        // Verify migrated file omits default values (sparse format)
+        let migrated_contents = fs::read_to_string(&config_path).unwrap();
+        // All fields are defaults, so should be empty or minimal
+        assert!(
+            migrated_contents.trim().is_empty()
+                || migrated_contents.trim().len() < full_config.len()
+        );
+
+        // Verify config loads correctly (defaults applied)
+        assert_eq!(config.hotkey.modifiers, vec!["Control", "Option"]);
+        assert_eq!(config.hotkey.key, "Z");
+        assert_eq!(config.audio.buffer_size, 1024);
+        assert_eq!(config.model.model_type, ModelType::Small);
+        assert_eq!(config.model.threads, 4);
+
+        // Second load should not re-migrate (idempotent)
+        let backup_modified = fs::metadata(&backup_path).unwrap().modified().unwrap();
+        let config2 = Config::load().unwrap();
+        let backup_modified2 = fs::metadata(&backup_path).unwrap().modified().unwrap();
+        assert_eq!(backup_modified, backup_modified2); // Backup not recreated
+        assert_eq!(config2.hotkey.key, config.hotkey.key);
+
+        // Restore HOME
+        if let Some(home) = original_home {
+            env::set_var("HOME", home);
+        } else {
+            env::remove_var("HOME");
+        }
+
+        let _ = fs::remove_dir_all(&test_home);
     }
 }
