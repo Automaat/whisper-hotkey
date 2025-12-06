@@ -37,6 +37,13 @@ jobs:
       - uses: jdx/mise-action@146a28175021df8ca24f8ee1828cc2a60f980bd5 # v3.5.1
         with:
           version: 2025.11.11
+      - name: Install sccache
+        run: brew install sccache
+      - name: Cache sccache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/Library/Caches/Mozilla.sccache
+          key: ${{ runner.os }}-sccache-${{ hashFiles('**/Cargo.lock') }}
       - name: Cache cargo registry
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
@@ -47,16 +54,12 @@ jobs:
         with:
           path: ~/.cargo/git
           key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
-      - name: Cache cargo build
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: target
-          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
       - name: Install clippy
         run: rustup component add clippy
       - name: Run clippy
         run: mise exec -- cargo clippy --all-targets --all-features -- -D warnings
         env:
+          RUSTC_WRAPPER: sccache
           GGML_NO_ACCELERATE: 1
           WHISPER_NO_AVX: 1
           WHISPER_NO_AVX2: 1
@@ -72,6 +75,13 @@ jobs:
       - uses: jdx/mise-action@146a28175021df8ca24f8ee1828cc2a60f980bd5 # v3.5.1
         with:
           version: 2025.11.11
+      - name: Install sccache
+        run: brew install sccache
+      - name: Cache sccache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/Library/Caches/Mozilla.sccache
+          key: ${{ runner.os }}-sccache-${{ hashFiles('**/Cargo.lock') }}
       - name: Cache cargo registry
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
@@ -82,20 +92,6 @@ jobs:
         with:
           path: ~/.cargo/git
           key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
-      - name: Cache cargo build
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: target
-          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
-      - name: Run tests
-        run: mise exec -- cargo test
-        env:
-          GGML_NO_ACCELERATE: 1
-          WHISPER_NO_AVX: 1
-          WHISPER_NO_AVX2: 1
-          WHISPER_NO_FMA: 1
-          CFLAGS: "-march=armv8-a"
-          CXXFLAGS: "-march=armv8-a"
       - name: Cache cargo tools
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
@@ -105,9 +101,12 @@ jobs:
         run: rustup component add llvm-tools-preview
       - name: Install cargo-llvm-cov
         run: which cargo-llvm-cov || cargo install cargo-llvm-cov
+        env:
+          RUSTC_WRAPPER: sccache
       - name: Generate coverage
         run: mise exec -- cargo llvm-cov --lcov --output-path lcov.info
         env:
+          RUSTC_WRAPPER: sccache
           GGML_NO_ACCELERATE: 1
           WHISPER_NO_AVX: 1
           WHISPER_NO_AVX2: 1
@@ -129,6 +128,13 @@ jobs:
       - uses: jdx/mise-action@146a28175021df8ca24f8ee1828cc2a60f980bd5 # v3.5.1
         with:
           version: 2025.11.11
+      - name: Install sccache
+        run: brew install sccache
+      - name: Cache sccache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/Library/Caches/Mozilla.sccache
+          key: ${{ runner.os }}-sccache-${{ hashFiles('**/Cargo.lock') }}
       - name: Cache cargo registry
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
@@ -139,14 +145,10 @@ jobs:
         with:
           path: ~/.cargo/git
           key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
-      - name: Cache cargo build
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: target
-          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
       - name: Build
         run: mise exec -- cargo build --release
         env:
+          RUSTC_WRAPPER: sccache
           GGML_NO_ACCELERATE: 1
           WHISPER_NO_AVX: 1
           WHISPER_NO_AVX2: 1
