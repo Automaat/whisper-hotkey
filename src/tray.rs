@@ -366,7 +366,7 @@ impl TrayManager {
         let hotkey_submenu = Submenu::new("Hotkey", true);
         for hotkey in &menu_config.hotkeys {
             let label = Self::format_label_with_checkmark(&hotkey.label, hotkey.selected);
-            hotkey_submenu.append(&MenuItem::new(&label, true, None))?;
+            hotkey_submenu.append(&MenuItem::with_id(&hotkey.label, &label, true, None))?;
         }
         menu.append(&hotkey_submenu)?;
 
@@ -374,7 +374,7 @@ impl TrayManager {
         let model_submenu = Submenu::new("Model", true);
         for model in &menu_config.models {
             let label = Self::format_label_with_checkmark(&model.name, model.selected);
-            model_submenu.append(&MenuItem::new(&label, true, None))?;
+            model_submenu.append(&MenuItem::with_id(&model.name, &label, true, None))?;
         }
         menu.append(&model_submenu)?;
 
@@ -385,7 +385,7 @@ impl TrayManager {
         let threads_submenu = Submenu::new("Threads", true);
         for thread in &menu_config.threads {
             let label = Self::format_label_with_checkmark(&thread.label, thread.selected);
-            threads_submenu.append(&MenuItem::new(&label, true, None))?;
+            threads_submenu.append(&MenuItem::with_id(&thread.label, &label, true, None))?;
         }
         opt_submenu.append(&threads_submenu)?;
 
@@ -393,7 +393,7 @@ impl TrayManager {
         let beam_submenu = Submenu::new("Beam Size", true);
         for beam in &menu_config.beam_sizes {
             let label = Self::format_label_with_checkmark(&beam.label, beam.selected);
-            beam_submenu.append(&MenuItem::new(&label, true, None))?;
+            beam_submenu.append(&MenuItem::with_id(&beam.label, &label, true, None))?;
         }
         opt_submenu.append(&beam_submenu)?;
 
@@ -403,7 +403,7 @@ impl TrayManager {
         let lang_submenu = Submenu::new("Language", true);
         for lang in &menu_config.languages {
             let label = Self::format_label_with_checkmark(&lang.display_name, lang.selected);
-            lang_submenu.append(&MenuItem::new(&label, true, None))?;
+            lang_submenu.append(&MenuItem::with_id(&lang.display_name, &label, true, None))?;
         }
         menu.append(&lang_submenu)?;
 
@@ -411,40 +411,51 @@ impl TrayManager {
         let buffer_submenu = Submenu::new("Audio Buffer", true);
         for buffer in &menu_config.buffer_sizes {
             let label = Self::format_label_with_checkmark(&buffer.label, buffer.selected);
-            buffer_submenu.append(&MenuItem::new(&label, true, None))?;
+            buffer_submenu.append(&MenuItem::with_id(&buffer.label, &label, true, None))?;
         }
         menu.append(&buffer_submenu)?;
 
         // Toggles
         menu.append(&PredefinedMenuItem::separator())?;
-        menu.append(&CheckMenuItem::new(
+        menu.append(&CheckMenuItem::with_id(
             "Preload Model",
-            menu_config.preload_enabled,
+            "Preload Model",
             true,
+            menu_config.preload_enabled,
             None,
         ))?;
-        menu.append(&CheckMenuItem::new(
+        menu.append(&CheckMenuItem::with_id(
             "Telemetry",
-            menu_config.telemetry_enabled,
+            "Telemetry",
             true,
+            menu_config.telemetry_enabled,
             None,
         ))?;
 
         // Actions
         menu.append(&PredefinedMenuItem::separator())?;
-        menu.append(&MenuItem::new("Open Config File", true, None))?;
+        menu.append(&MenuItem::with_id(
+            "Open Config File",
+            "Open Config File",
+            true,
+            None,
+        ))?;
         menu.append(&PredefinedMenuItem::quit(None))?;
 
         Ok(menu)
     }
 
-    pub fn update_menu(&self, config: &Config) -> Result<()> {
+    pub fn update_menu(&mut self, config: &Config) -> Result<()> {
         let current_state = *self
             .state
             .lock()
             .map_err(|e| anyhow!("state lock poisoned: {}", e))?;
-        let new_menu = Self::build_menu(config, Some(current_state))?;
-        self.tray.set_menu(Some(Box::new(new_menu)));
+
+        // Rebuild entire tray with new menu (workaround for macOS set_menu() bug)
+        let new_tray = Self::build_tray(config, current_state, &self.cached_icons)?;
+        self.tray = new_tray;
+
+        tracing::debug!("✓ tray menu rebuilt with config changes");
         Ok(())
     }
 
