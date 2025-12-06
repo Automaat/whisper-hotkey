@@ -1,5 +1,51 @@
 use anyhow::{bail, Result};
 
+/// Check if the app bundle has macOS quarantine attribute
+///
+/// Returns detailed instructions for removing quarantine if detected.
+/// This is a common issue when apps are downloaded from the internet.
+fn check_quarantine_status() -> Option<String> {
+    #[cfg(target_os = "macos")]
+    {
+        use std::process::Command;
+
+        // Get the path to the current executable
+        let exe_path = std::env::current_exe().ok();
+
+        if let Some(exe) = exe_path {
+            // Check if we're running from a .app bundle
+            let exe_str = exe.to_string_lossy();
+            if exe_str.contains(".app/Contents/MacOS/") {
+                // Extract the .app bundle path
+                if let Some(app_idx) = exe_str.find(".app/") {
+                    let app_path = &exe_str[..app_idx + 4]; // Include ".app"
+
+                    // Check for quarantine attribute using xattr
+                    let output = Command::new("xattr").arg("-l").arg(app_path).output();
+
+                    if let Ok(output) = output {
+                        let stdout = String::from_utf8_lossy(&output.stdout);
+
+                        if stdout.contains("com.apple.quarantine") {
+                            let message = format!(
+                                "\n\n⚠️  QUARANTINE DETECTED\n\n\
+                                Your app has the macOS quarantine attribute (common for downloaded apps).\n\
+                                This prevents macOS from recognizing granted permissions.\n\n\
+                                To fix, run this command in Terminal:\n\n\
+                                    xattr -d com.apple.quarantine {app_path}\n\n\
+                                Then restart the app.\n"
+                            );
+                            return Some(message);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    None
+}
+
 /// Check and request microphone permission
 ///
 /// # Errors
@@ -66,6 +112,9 @@ pub fn check_accessibility_permission() -> Result<()> {
         #[allow(unsafe_code)]
         let _ = unsafe { AXIsProcessTrustedWithOptions(options.as_concrete_TypeRef()) };
 
+        // Check for quarantine attribute that might be blocking permissions
+        let quarantine_msg = check_quarantine_status().unwrap_or_default();
+
         // Always exit with instructions after showing dialog
         // User must grant permission in System Settings and relaunch the app
         bail!(
@@ -73,7 +122,7 @@ pub fn check_accessibility_permission() -> Result<()> {
             A system dialog has been shown. Please:\n\
             1. Open System Settings → Privacy & Security → Accessibility\n\
             2. Enable this app\n\
-            3. Restart the app\n"
+            3. Restart the app{quarantine_msg}\n"
         );
     }
 
@@ -93,12 +142,15 @@ pub fn check_input_monitoring_permission() -> Result<()> {
         use core_graphics::event::CGEvent;
         use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
 
+        // Check for quarantine attribute that might be blocking permissions
+        let quarantine_msg = check_quarantine_status().unwrap_or_default();
+
         // Try to create a CGEventSource with HIDSystemState - requires Input Monitoring
         let source = CGEventSource::new(CGEventSourceStateID::HIDSystemState).map_err(|()| {
             anyhow::anyhow!(
                 "Input Monitoring permission denied\n\n\
                 Enable in: System Settings → Privacy & Security → Input Monitoring\n\
-                Add and enable this app, then restart.\n"
+                Add and enable this app, then restart.{quarantine_msg}\n"
             )
         })?;
 
@@ -106,7 +158,7 @@ pub fn check_input_monitoring_permission() -> Result<()> {
         CGEvent::new_keyboard_event(source, 0, true).map_err(|()| {
             anyhow::anyhow!(
                 "Failed to create CGEvent - Input Monitoring may be restricted\n\n\
-                Enable in: System Settings → Privacy & Security → Input Monitoring\n"
+                Enable in: System Settings → Privacy & Security → Input Monitoring{quarantine_msg}\n"
             )
         })?;
 
