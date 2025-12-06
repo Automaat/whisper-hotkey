@@ -186,8 +186,8 @@ jobs:
       - name: Get SHA256 for Homebrew
         id: sha256
         run: |
-          SHA256=$(cat target/release/WhisperHotkey-${{ steps.version.outputs.VERSION }}.dmg.sha256 | awk '{print $1}')
-          echo "sha256=$SHA256" >> $GITHUB_OUTPUT
+          SHA256=$(cat "target/release/WhisperHotkey-${{ steps.version.outputs.VERSION }}.dmg.sha256" | awk '{print $1}')
+          echo "sha256=$SHA256" >> "$GITHUB_OUTPUT"
           echo "✓ SHA256: $SHA256"
 
       - name: Trigger Homebrew Tap Update
