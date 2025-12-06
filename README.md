@@ -230,6 +230,23 @@ App auto-downloads model on next run.
 
 ## Troubleshooting
 
+### Permissions not working after granting them (macOS Quarantine)
+
+**Symptoms:** You've granted Microphone and Accessibility permissions, but the app still can't access them.
+
+**Cause:** macOS quarantine attribute (applied to downloaded apps) prevents the system from recognizing granted permissions.
+
+**Solution:**
+
+1. Open Terminal
+2. Run this command (replace path if needed):
+   ```bash
+   xattr -d com.apple.quarantine /Applications/WhisperHotkey.app
+   ```
+3. Restart the app
+
+**Note:** The app will detect quarantine on startup and show this command automatically.
+
 ### "No input device available"
 - Grant **Microphone** permission: System Settings → Privacy & Security → Microphone
 - Reset: `tccutil reset Microphone`, then restart app
