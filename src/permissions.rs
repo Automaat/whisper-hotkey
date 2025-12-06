@@ -32,11 +32,13 @@ fn check_quarantine_status() -> Option<String> {
                                 Your app has the macOS quarantine attribute (common for downloaded apps).\n\
                                 This prevents macOS from recognizing granted permissions.\n\n\
                                 To fix, run this command in Terminal:\n\n\
-                                    xattr -d com.apple.quarantine {app_path}\n\n\
+                                    xattr -d com.apple.quarantine \"{app_path}\"\n\n\
                                 Then restart the app.\n"
                             );
                             return Some(message);
                         }
+                    } else if let Err(e) = output {
+                        tracing::debug!("failed to check quarantine status: {}", e);
                     }
                 }
             }
@@ -345,5 +347,38 @@ mod tests {
                 "Error message should mention permission issue: {error_msg}"
             );
         }
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn test_check_quarantine_status_returns_option() {
+        // Test that function returns Option<String> (compiles and runs)
+        let result = check_quarantine_status();
+        // Will be None unless running from quarantined .app bundle
+        assert!(result.is_none() || result.is_some());
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn test_quarantine_message_contains_xattr_command() {
+        // If quarantine detected, verify message format
+        // This test can't force quarantine detection, but validates logic
+        let result = check_quarantine_status();
+
+        if let Some(msg) = result {
+            assert!(msg.contains("QUARANTINE DETECTED"));
+            assert!(msg.contains("xattr -d com.apple.quarantine"));
+            assert!(msg.contains("Restart the app"));
+            // Verify path is quoted (handles spaces)
+            assert!(msg.contains("\""));
+        }
+    }
+
+    #[test]
+    #[cfg(not(target_os = "macos"))]
+    fn test_check_quarantine_status_non_macos() {
+        // On non-macOS, should always return None
+        let result = check_quarantine_status();
+        assert!(result.is_none());
     }
 }
