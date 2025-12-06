@@ -398,7 +398,7 @@ mod tests {
         for path in paths {
             let msg = format_quarantine_message(path);
             // All paths should be quoted
-            assert!(msg.contains(&format!("\"{}\"", path)));
+            assert!(msg.contains(&format!("\"{path}\"")));
             assert!(msg.contains("xattr -d com.apple.quarantine"));
         }
     }
@@ -449,8 +449,7 @@ mod tests {
             let quoted_path_count = msg.matches('"').count();
             assert!(
                 quoted_path_count >= 2,
-                "Path should be quoted (found {} quotes)",
-                quoted_path_count
+                "Path should be quoted (found {quoted_path_count} quotes)"
             );
 
             // Verify structure: command should have quoted path
@@ -481,16 +480,12 @@ mod tests {
 
         if exe_str.contains(".app/Contents/MacOS/") {
             // We're in a .app bundle, check if quarantine is detected
-            eprintln!("Running from .app bundle: {}", exe_str);
-            eprintln!("Quarantine check result: {:?}", result);
-
-            // Don't assert here - just validate format if present
+            // Validate format if quarantine detected
             if let Some(msg) = result {
                 assert!(msg.contains("xattr -d com.apple.quarantine"));
             }
-        } else {
-            eprintln!("Not running from .app bundle, skipping quarantine detection test");
         }
+        // If not in .app bundle, test is skipped (no assertions)
     }
 
     #[test]
@@ -512,19 +507,15 @@ mod tests {
         let result = check_quarantine_status();
 
         // Function should return Option (Some or None), never panic
-        match result {
-            Some(msg) => {
-                // Quarantine detected, validate message
-                assert!(msg.contains("xattr"), "Message should mention xattr");
-            }
-            None => {
-                // No quarantine or not in .app bundle - expected
-                assert!(true);
-            }
+        if let Some(msg) = result {
+            // Quarantine detected, validate message
+            assert!(msg.contains("xattr"), "Message should mention xattr");
         }
+        // If None: no quarantine or not in .app bundle - expected, no assertion needed
 
-        // Verify debug logging doesn't cause issues (line 41)
-        // If xattr fails, debug log is written but function continues
-        // This test ensures no panic/crash in error path
+        // This test validates that function doesn't panic in any scenario:
+        // - When xattr command fails (error path with debug logging)
+        // - When not running from .app bundle
+        // - When quarantine not present
     }
 }
