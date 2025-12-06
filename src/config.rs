@@ -130,22 +130,58 @@ impl Default for ModelType {
     }
 }
 
+// Helper functions for skip_serializing_if
+fn is_default_hotkey(val: &HotkeyConfig) -> bool {
+    val.modifiers == HotkeyConfig::default().modifiers && val.key == HotkeyConfig::default().key
+}
+
+fn is_default_audio(val: &AudioConfig) -> bool {
+    val.buffer_size == AudioConfig::default().buffer_size
+        && val.sample_rate == AudioConfig::default().sample_rate
+}
+
+fn is_default_model(val: &ModelConfig) -> bool {
+    let default = ModelConfig::default();
+    val.model_type == default.model_type
+        && val.preload == default.preload
+        && val.threads == default.threads
+        && val.beam_size == default.beam_size
+        && val.language == default.language
+}
+
+fn is_default_telemetry(val: &TelemetryConfig) -> bool {
+    val.enabled == TelemetryConfig::default().enabled
+        && val.log_path == TelemetryConfig::default().log_path
+}
+
+fn is_default_recording(val: &RecordingConfig) -> bool {
+    let default = RecordingConfig::default();
+    val.enabled == default.enabled
+        && val.retention_days == default.retention_days
+        && val.max_count == default.max_count
+        && val.cleanup_interval_hours == default.cleanup_interval_hours
+}
+
 /// Application configuration
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct Config {
     /// Hotkey configuration
+    #[serde(default, skip_serializing_if = "is_default_hotkey")]
     #[allow(dead_code)] // Used in Phase 2+
     pub hotkey: HotkeyConfig,
     /// Audio capture configuration
+    #[serde(default, skip_serializing_if = "is_default_audio")]
     #[allow(dead_code)] // Used in Phase 3+
     pub audio: AudioConfig,
     /// Whisper model configuration
+    #[serde(default, skip_serializing_if = "is_default_model")]
     #[allow(dead_code)] // Used in Phase 4+
     pub model: ModelConfig,
     /// Telemetry configuration
+    #[serde(default, skip_serializing_if = "is_default_telemetry")]
     pub telemetry: TelemetryConfig,
     /// Recording configuration
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_default_recording")]
     pub recording: RecordingConfig,
 }
 
@@ -160,6 +196,15 @@ pub struct HotkeyConfig {
     pub key: String,
 }
 
+impl Default for HotkeyConfig {
+    fn default() -> Self {
+        Self {
+            modifiers: vec!["Control".to_owned(), "Option".to_owned()],
+            key: "Z".to_owned(),
+        }
+    }
+}
+
 /// Audio capture configuration
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct AudioConfig {
@@ -169,6 +214,15 @@ pub struct AudioConfig {
     /// Sample rate in Hz
     #[allow(dead_code)] // Used in Phase 3
     pub sample_rate: u32,
+}
+
+impl Default for AudioConfig {
+    fn default() -> Self {
+        Self {
+            buffer_size: 1024,
+            sample_rate: 16000,
+        }
+    }
 }
 
 /// Whisper model configuration
@@ -266,6 +320,18 @@ impl Serialize for ModelConfig {
     }
 }
 
+impl Default for ModelConfig {
+    fn default() -> Self {
+        Self {
+            model_type: ModelType::default(),
+            preload: default_preload(),
+            threads: default_threads(),
+            beam_size: default_beam_size(),
+            language: default_language(),
+        }
+    }
+}
+
 /// Telemetry and crash logging configuration
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct TelemetryConfig {
@@ -273,6 +339,15 @@ pub struct TelemetryConfig {
     pub enabled: bool,
     /// Path to log file
     pub log_path: String,
+}
+
+impl Default for TelemetryConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            log_path: "~/.whisper-hotkey/crash.log".to_owned(),
+        }
+    }
 }
 
 /// Recording configuration
@@ -371,6 +446,14 @@ impl Config {
             config.save().context("failed to save migrated config")?;
         }
 
+        // Migrate to sparse format if config has content (not already migrated)
+        // Skip if backup already exists (already migrated) or file is empty
+        let backup_path = config_path.with_extension("toml.bak");
+        if !contents.trim().is_empty() && !backup_path.exists() {
+            Self::migrate_to_sparse(&config_path)
+                .context("failed to migrate config to sparse format")?;
+        }
+
         Ok(config)
     }
 
@@ -390,32 +473,8 @@ impl Config {
             fs::create_dir_all(parent).context("failed to create config directory")?;
         }
 
-        let default_config = r#"[hotkey]
-modifiers = ["Control", "Option"]
-key = "Z"
-
-[audio]
-buffer_size = 1024
-sample_rate = 16000
-
-[model]
-model_type = "small"
-preload = true
-threads = 4        # CPU threads for inference (4 optimal for M1/M2)
-beam_size = 1      # Beam search size (1 = greedy/fast, higher = more accurate but slower)
-language = "en"    # Language hint: "en", "pl", "es", etc. Omit for auto-detect
-
-[telemetry]
-enabled = true
-log_path = "~/.whisper-hotkey/crash.log"
-
-[recording]
-enabled = true                  # Save debug recordings to ~/.whisper-hotkey/debug/
-retention_days = 7              # Delete recordings older than N days (0 = keep all)
-max_count = 100                 # Keep only N most recent recordings (0 = unlimited)
-cleanup_interval_hours = 1      # Hours between cleanup runs (0 = startup only)
-"#;
-        fs::write(path, default_config).context("failed to write default config")?;
+        // Create empty config file - all defaults come from code
+        fs::write(path, "").context("failed to write default config")?;
         Ok(())
     }
 
@@ -434,6 +493,37 @@ cleanup_interval_hours = 1      # Hours between cleanup runs (0 = startup only)
         let contents =
             toml::to_string_pretty(self).context("failed to serialize config to TOML")?;
         fs::write(&config_path, contents).context("failed to write config file")?;
+        Ok(())
+    }
+
+    /// Migrate existing config to sparse format (removes default values)
+    /// Creates backup as config.toml.bak before migration
+    ///
+    /// # Errors
+    /// Returns error if backup creation or save fails
+    fn migrate_to_sparse(config_path: &PathBuf) -> Result<()> {
+        // Read current config contents
+        let contents = fs::read_to_string(config_path).context("failed to read config file")?;
+
+        // Skip if already empty (already sparse)
+        if contents.trim().is_empty() {
+            return Ok(());
+        }
+
+        // Create backup
+        let backup_path = config_path.with_extension("toml.bak");
+        fs::copy(config_path, &backup_path).context("failed to create config backup")?;
+        tracing::info!("created config backup at {}", backup_path.display());
+
+        // Load config (parses with defaults)
+        let config: Self = toml::from_str(&contents).context("failed to parse config TOML")?;
+
+        // Save (will skip default values due to skip_serializing_if)
+        let sparse_contents =
+            toml::to_string_pretty(&config).context("failed to serialize config to TOML")?;
+        fs::write(config_path, sparse_contents).context("failed to write migrated config")?;
+
+        tracing::info!("migrated config to sparse format");
         Ok(())
     }
 
@@ -775,17 +865,26 @@ log_path = "/test/log.txt"
 
     #[test]
     fn test_config_serialize() {
+        // Test with all default values - should serialize to nearly empty
+        let default_config = Config::default();
+        let serialized = toml::to_string(&default_config).unwrap();
+        // Default values should not appear in serialization
+        assert!(!serialized.contains("modifiers"));
+        assert!(!serialized.contains("buffer_size"));
+        assert!(!serialized.contains("small"));
+
+        // Test with non-default values - should serialize them
         let config = Config {
             hotkey: HotkeyConfig {
-                modifiers: vec!["Control".to_owned(), "Option".to_owned()],
-                key: "Z".to_owned(),
+                modifiers: vec!["Command".to_owned()],
+                key: "V".to_owned(),
             },
             audio: AudioConfig {
-                buffer_size: 1024,
+                buffer_size: 2048,
                 sample_rate: 16000,
             },
             model: ModelConfig {
-                model_type: ModelType::Small,
+                model_type: ModelType::Base,
                 preload: true,
                 threads: 4,
                 beam_size: 5,
@@ -799,10 +898,14 @@ log_path = "/test/log.txt"
         };
 
         let serialized = toml::to_string(&config).unwrap();
+        // Non-default values should appear
         assert!(serialized.contains("modifiers"));
-        assert!(serialized.contains("Control"));
+        assert!(serialized.contains("Command"));
         assert!(serialized.contains("buffer_size"));
-        assert!(serialized.contains("small")); // model_type serializes as lowercase
+        assert!(serialized.contains("2048"));
+        assert!(serialized.contains("base")); // model_type serializes as lowercase
+        assert!(serialized.contains("beam_size"));
+        assert!(serialized.contains("5"));
     }
 
     #[test]
