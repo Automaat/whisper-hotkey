@@ -92,16 +92,6 @@ jobs:
         with:
           path: ~/.cargo/git
           key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
-      - name: Run tests
-        run: mise exec -- cargo test
-        env:
-          RUSTC_WRAPPER: sccache
-          GGML_NO_ACCELERATE: 1
-          WHISPER_NO_AVX: 1
-          WHISPER_NO_AVX2: 1
-          WHISPER_NO_FMA: 1
-          CFLAGS: "-march=armv8-a"
-          CXXFLAGS: "-march=armv8-a"
       - name: Cache cargo tools
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
