@@ -1,5 +1,25 @@
 use anyhow::{bail, Result};
 
+/// Extract .app bundle path from executable path
+///
+/// Returns the path to the .app bundle if the executable is inside one.
+/// For example: "/Applications/MyApp.app/Contents/MacOS/myapp" -> Some("/Applications/MyApp.app")
+fn extract_app_bundle_path(exe_path: &str) -> Option<String> {
+    if !exe_path.contains(".app/Contents/MacOS/") {
+        return None;
+    }
+
+    let app_idx = exe_path.find(".app/")?;
+    Some(exe_path[..app_idx + 4].to_string()) // Include ".app"
+}
+
+/// Check if xattr output contains quarantine attribute
+///
+/// Parses the output from `xattr -l` command to detect com.apple.quarantine.
+fn contains_quarantine_attribute(xattr_output: &str) -> bool {
+    xattr_output.contains("com.apple.quarantine")
+}
+
 /// Format quarantine removal instructions for a given app path
 ///
 /// Used by `check_quarantine_status()` to generate user-facing message.
@@ -25,25 +45,19 @@ fn check_quarantine_status() -> Option<String> {
 
         // Get the path to the current executable
         let exe_path = std::env::current_exe().ok()?;
-
-        // Check if we're running from a .app bundle
         let exe_str = exe_path.to_string_lossy();
-        if !exe_str.contains(".app/Contents/MacOS/") {
-            return None;
-        }
 
-        // Extract the .app bundle path
-        let app_idx = exe_str.find(".app/")?;
-        let app_path = &exe_str[..app_idx + 4]; // Include ".app"
+        // Extract .app bundle path
+        let app_path = extract_app_bundle_path(&exe_str)?;
 
         // Check for quarantine attribute using xattr
-        let output = Command::new("xattr").arg("-l").arg(app_path).output();
+        let output = Command::new("xattr").arg("-l").arg(&app_path).output();
 
         match output {
             Ok(output) => {
                 let stdout = String::from_utf8_lossy(&output.stdout);
-                if stdout.contains("com.apple.quarantine") {
-                    return Some(format_quarantine_message(app_path));
+                if contains_quarantine_attribute(&stdout) {
+                    return Some(format_quarantine_message(&app_path));
                 }
             }
             Err(e) => {
@@ -354,6 +368,130 @@ mod tests {
                 "Error message should mention permission issue: {error_msg}"
             );
         }
+    }
+
+    #[test]
+    fn test_extract_app_bundle_path_valid() {
+        // Test extracting .app path from valid executable paths
+        let test_cases = vec![
+            (
+                "/Applications/WhisperHotkey.app/Contents/MacOS/whisper-hotkey",
+                Some("/Applications/WhisperHotkey.app"),
+            ),
+            (
+                "/Users/user/My Apps/Test.app/Contents/MacOS/test",
+                Some("/Users/user/My Apps/Test.app"),
+            ),
+            (
+                "/System/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal",
+                Some("/System/Applications/Utilities/Terminal.app"),
+            ),
+        ];
+
+        for (input, expected) in test_cases {
+            let result = extract_app_bundle_path(input);
+            assert_eq!(result.as_deref(), expected, "Failed for input: {input}");
+        }
+    }
+
+    #[test]
+    fn test_extract_app_bundle_path_invalid() {
+        // Test paths that are not in .app bundles
+        let invalid_paths = vec![
+            "/usr/local/bin/whisper-hotkey",
+            "/Applications/WhisperHotkey/bin/app",
+            "/home/user/.cargo/bin/test",
+            "target/debug/whisper-hotkey",
+            "/Applications/Test.app", // Missing /Contents/MacOS/
+            "/Applications/Test.app/Contents/Resources/file", // Wrong subdirectory
+        ];
+
+        for path in invalid_paths {
+            let result = extract_app_bundle_path(path);
+            assert!(
+                result.is_none(),
+                "Expected None for path: {path}, got {result:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_extract_app_bundle_path_edge_cases() {
+        // Test edge cases
+        assert_eq!(
+            extract_app_bundle_path("/Test.app/Contents/MacOS/test"),
+            Some("/Test.app".to_owned())
+        );
+
+        // Multiple .app in path (should match first)
+        assert_eq!(
+            extract_app_bundle_path("/Apps/Outer.app/Inner.app/Contents/MacOS/test"),
+            Some("/Apps/Outer.app".to_owned())
+        );
+
+        // Empty and unusual paths
+        assert_eq!(extract_app_bundle_path(""), None);
+        assert_eq!(
+            extract_app_bundle_path(".app/Contents/MacOS/test"),
+            Some(".app".to_owned())
+        );
+    }
+
+    #[test]
+    fn test_contains_quarantine_attribute_present() {
+        // Test with real xattr output containing quarantine
+        let xattr_outputs = vec![
+            "com.apple.quarantine: 0083;12345678;Safari;",
+            "com.apple.FinderInfo:\n00000000  00 00 00 00 00 00 00 00\ncom.apple.quarantine: 0001;",
+            "  com.apple.quarantine  :  data  ",
+            "com.apple.lastuseddate#PS: ...\ncom.apple.quarantine: ...",
+        ];
+
+        for output in xattr_outputs {
+            assert!(
+                contains_quarantine_attribute(output),
+                "Failed to detect quarantine in: {output}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_contains_quarantine_attribute_absent() {
+        // Test with xattr output without quarantine
+        let xattr_outputs = vec![
+            "",
+            "com.apple.FinderInfo:\n00000000  00 00 00 00",
+            "com.apple.metadata:kMDItemWhereFroms",
+            "com.apple.lastuseddate#PS: data",
+            "   ",
+            "\n\n",
+        ];
+
+        for output in xattr_outputs {
+            assert!(
+                !contains_quarantine_attribute(output),
+                "False positive for: {output}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_contains_quarantine_attribute_case_sensitivity() {
+        // Verify case sensitivity (should be exact match)
+        assert!(contains_quarantine_attribute("com.apple.quarantine"));
+        assert!(!contains_quarantine_attribute("com.apple.QUARANTINE"));
+        assert!(!contains_quarantine_attribute("COM.APPLE.QUARANTINE"));
+    }
+
+    #[test]
+    fn test_contains_quarantine_attribute_substring_matching() {
+        // Function uses substring matching (contains)
+        assert!(contains_quarantine_attribute("com.apple.quarantine2")); // Substring match
+        assert!(contains_quarantine_attribute("com.apple.quarantine: data"));
+        assert!(contains_quarantine_attribute(
+            "prefix com.apple.quarantine suffix"
+        ));
+        assert!(contains_quarantine_attribute("com.apple.quarantine")); // Exact match
     }
 
     #[test]
