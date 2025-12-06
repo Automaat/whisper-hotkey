@@ -1427,4 +1427,54 @@ cleanup_interval_hours = 0
         assert_eq!(config.recording.max_count, 0);
         assert_eq!(config.recording.cleanup_interval_hours, 0);
     }
+
+    #[test]
+    fn test_unknown_fields_stripped_during_serialization() {
+        // Config with unknown/deprecated fields
+        let toml = r#"
+[hotkey]
+modifiers = ["Control"]
+key = "M"
+unknown_hotkey_field = "should be ignored"
+
+[audio]
+buffer_size = 512
+sample_rate = 16000
+deprecated_field = 123
+
+[model]
+model_type = "tiny"
+preload = true
+old_field = "removed"
+
+[telemetry]
+enabled = true
+log_path = "/tmp/crash.log"
+
+[unknown_section]
+foo = "bar"
+
+[recording]
+enabled = false
+unknown_param = "test"
+"#;
+        // Deserialize (unknown fields ignored)
+        let config: Config = toml::from_str(toml).unwrap();
+
+        // Serialize back
+        let serialized = toml::to_string(&config).unwrap();
+
+        // Verify unknown fields not present
+        assert!(!serialized.contains("unknown_hotkey_field"));
+        assert!(!serialized.contains("deprecated_field"));
+        assert!(!serialized.contains("old_field"));
+        assert!(!serialized.contains("unknown_section"));
+        assert!(!serialized.contains("unknown_param"));
+
+        // Verify known fields are preserved
+        assert_eq!(config.hotkey.modifiers, vec!["Control"]);
+        assert_eq!(config.hotkey.key, "M");
+        assert_eq!(config.audio.buffer_size, 512);
+        assert!(!config.recording.enabled);
+    }
 }
