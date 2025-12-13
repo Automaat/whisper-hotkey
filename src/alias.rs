@@ -7,6 +7,11 @@ use tracing::{debug, info};
 /// Returns the best matching alias value if similarity >= threshold,
 /// otherwise returns the original text.
 ///
+/// # Performance
+/// For typical usage (<10 aliases), string allocations are negligible as this
+/// runs in a background thread. For 50+ aliases, consider caching normalized
+/// triggers in a preprocessed `HashMap` to reduce allocations.
+///
 /// # Arguments
 /// * `text` - Transcribed text from Whisper
 /// * `config` - Alias configuration with entries and threshold

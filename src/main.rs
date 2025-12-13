@@ -142,6 +142,7 @@ async fn main() -> Result<()> {
     );
 
     // Phase 2: Global hotkey (with Phase 5 transcription integration)
+    // Clone necessary: config.aliases needed in Arc, but config borrowed later by tray manager
     let hotkey_manager = input::hotkey::HotkeyManager::new(
         &config.hotkey,
         Arc::clone(&audio_capture),
