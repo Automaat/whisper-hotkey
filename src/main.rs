@@ -17,6 +17,7 @@
 // Allow long main function (event loop with config handling)
 #![allow(clippy::too_many_lines)]
 
+mod alias;
 mod audio;
 mod config;
 mod input;
@@ -141,11 +142,13 @@ async fn main() -> Result<()> {
     );
 
     // Phase 2: Global hotkey (with Phase 5 transcription integration)
+    // Clone necessary: config.aliases needed in Arc, but config borrowed later by tray manager
     let hotkey_manager = input::hotkey::HotkeyManager::new(
         &config.hotkey,
         Arc::clone(&audio_capture),
         transcription_engine.clone(),
         config.recording.enabled,
+        Arc::new(config.aliases.clone()),
     )
     .context("failed to register global hotkey")?;
     println!(

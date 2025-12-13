@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
@@ -163,6 +164,11 @@ fn is_default_recording(val: &RecordingConfig) -> bool {
         && val.cleanup_interval_hours == default.cleanup_interval_hours
 }
 
+#[allow(clippy::float_cmp)]
+fn is_default_aliases(val: &AliasesConfig) -> bool {
+    val.enabled && val.threshold == 0.8 && val.entries.is_empty()
+}
+
 /// Application configuration
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct Config {
@@ -184,6 +190,9 @@ pub struct Config {
     /// Recording configuration
     #[serde(default, skip_serializing_if = "is_default_recording")]
     pub recording: RecordingConfig,
+    /// Aliases configuration
+    #[serde(default, skip_serializing_if = "is_default_aliases")]
+    pub aliases: AliasesConfig,
 }
 
 /// Hotkey configuration
@@ -391,6 +400,38 @@ impl Default for RecordingConfig {
             retention_days: default_retention_days(),
             max_count: default_max_count(),
             cleanup_interval_hours: default_cleanup_interval_hours(),
+        }
+    }
+}
+
+/// Aliases configuration
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct AliasesConfig {
+    /// Enable alias matching
+    #[serde(default = "default_aliases_enabled")]
+    pub enabled: bool,
+    /// Minimum similarity threshold (0.0-1.0)
+    #[serde(default = "default_aliases_threshold")]
+    pub threshold: f64,
+    /// Alias mappings (trigger phrase -> output text)
+    #[serde(default)]
+    pub entries: HashMap<String, String>,
+}
+
+const fn default_aliases_enabled() -> bool {
+    true
+}
+
+const fn default_aliases_threshold() -> f64 {
+    0.8
+}
+
+impl Default for AliasesConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_aliases_enabled(),
+            threshold: default_aliases_threshold(),
+            entries: HashMap::new(),
         }
     }
 }
@@ -899,6 +940,7 @@ log_path = "/test/log.txt"
                 log_path: "~/.whisper-hotkey/crash.log".to_owned(),
             },
             recording: RecordingConfig::default(),
+            aliases: AliasesConfig::default(),
         };
 
         let serialized = toml::to_string(&config).unwrap();
@@ -935,6 +977,7 @@ log_path = "/test/log.txt"
                 log_path: "/tmp/log.txt".to_owned(),
             },
             recording: RecordingConfig::default(),
+            aliases: AliasesConfig::default(),
         };
 
         let serialized = toml::to_string(&original).unwrap();
@@ -1218,6 +1261,7 @@ log_path = "/custom/log.txt"
                 log_path: "/test/log.txt".to_owned(),
             },
             recording: RecordingConfig::default(),
+            aliases: AliasesConfig::default(),
         };
 
         config.save().unwrap();

@@ -786,7 +786,7 @@ mod tests {
 
     fn create_test_config() -> Config {
         use crate::config::{
-            AudioConfig, HotkeyConfig, ModelConfig, RecordingConfig, TelemetryConfig,
+            AliasesConfig, AudioConfig, HotkeyConfig, ModelConfig, RecordingConfig, TelemetryConfig,
         };
         Config {
             hotkey: HotkeyConfig {
@@ -809,6 +809,7 @@ mod tests {
                 log_path: "~/.whisper-hotkey/crash.log".to_owned(),
             },
             recording: RecordingConfig::default(),
+            aliases: AliasesConfig::default(),
         }
     }
 
@@ -932,7 +933,7 @@ mod tests {
 
     fn create_menu_test_config() -> Config {
         use crate::config::{
-            AudioConfig, HotkeyConfig, ModelConfig, RecordingConfig, TelemetryConfig,
+            AliasesConfig, AudioConfig, HotkeyConfig, ModelConfig, RecordingConfig, TelemetryConfig,
         };
         Config {
             hotkey: HotkeyConfig {
@@ -955,6 +956,7 @@ mod tests {
                 log_path: "/tmp/test.log".to_owned(),
             },
             recording: RecordingConfig::default(),
+            aliases: AliasesConfig::default(),
         }
     }
 

@@ -27,6 +27,7 @@ hound = "3"
 # Phase 4: Whisper Integration
 whisper-rs = "0.15"
 reqwest = { version = "0.11", features = ["blocking"] }
+strsim = "0.11"
 
 # Menubar Integration
 tray-icon = "0.18"

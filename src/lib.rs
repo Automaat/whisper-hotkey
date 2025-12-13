@@ -2,6 +2,8 @@
 //!
 //! This library exports core modules for testing and potential future reuse.
 
+/// Alias matching for transcribed text
+pub mod alias;
 /// Audio capture and processing
 pub mod audio;
 /// Configuration management
