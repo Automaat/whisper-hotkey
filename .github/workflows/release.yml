@@ -113,10 +113,71 @@ jobs:
       - name: Create release notes
         id: release_notes
         run: |
+          # Get previous tag for changelog
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 ${{ steps.version.outputs.TAG_NAME }}^ 2>/dev/null || echo "")
+
+          # Start release notes
           cat > release_notes.md <<'EOF'
           # WhisperHotkey v${{ steps.version.outputs.VERSION }}
 
           macOS voice-to-text app using local Whisper. Hold hotkey, speak, release → text inserted at cursor.
+
+          EOF
+
+          # Generate What's New section if previous tag exists
+          if [ -n "$PREVIOUS_TAG" ]; then
+            echo "## What's New" >> release_notes.md
+            echo "" >> release_notes.md
+
+            # Get commits since previous tag, grouped by type
+            FEATURES=$(git log --pretty=format:"%s" "${PREVIOUS_TAG}..${{ steps.version.outputs.TAG_NAME }}" | grep "^feat" || true)
+            FIXES=$(git log --pretty=format:"%s" "${PREVIOUS_TAG}..${{ steps.version.outputs.TAG_NAME }}" | grep "^fix" || true)
+            OTHERS=$(git log --pretty=format:"%s" "${PREVIOUS_TAG}..${{ steps.version.outputs.TAG_NAME }}" | grep -v "^feat" | grep -v "^fix" || true)
+
+            # Features
+            if [ -n "$FEATURES" ]; then
+              echo "### ✨ Features" >> release_notes.md
+              echo "" >> release_notes.md
+              echo "$FEATURES" | while read -r line; do
+                # Extract message (remove feat: or feat(scope):)
+                MSG="${line#feat: }"
+                MSG="${MSG#feat\(*\): }"
+                echo "- $MSG" >> release_notes.md
+              done
+              echo "" >> release_notes.md
+            fi
+
+            # Bug fixes
+            if [ -n "$FIXES" ]; then
+              echo "### 🐛 Bug Fixes" >> release_notes.md
+              echo "" >> release_notes.md
+              echo "$FIXES" | while read -r line; do
+                # Extract message (remove fix: or fix(scope):)
+                MSG="${line#fix: }"
+                MSG="${MSG#fix\(*\): }"
+                echo "- $MSG" >> release_notes.md
+              done
+              echo "" >> release_notes.md
+            fi
+
+            # Other changes
+            if [ -n "$OTHERS" ]; then
+              echo "### 🔧 Other Changes" >> release_notes.md
+              echo "" >> release_notes.md
+              echo "$OTHERS" | while read -r line; do
+                # Extract message (remove type: prefix)
+                MSG="${line#*: }"
+                echo "- $MSG" >> release_notes.md
+              done
+              echo "" >> release_notes.md
+            fi
+
+            echo "**Full Changelog**: https://github.com/Automaat/whisper-hotkey/compare/${PREVIOUS_TAG}...${{ steps.version.outputs.TAG_NAME }}" >> release_notes.md
+            echo "" >> release_notes.md
+          fi
+
+          # Append installation instructions
+          cat >> release_notes.md <<'EOF'
 
           ## Installation
 
