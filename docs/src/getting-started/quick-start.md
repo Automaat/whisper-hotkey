@@ -4,7 +4,21 @@ After installation, follow these steps to test Whisper Hotkey.
 
 ## First Launch
 
-When you run Whisper Hotkey for the first time, you'll see console output like this:
+### Homebrew/DMG Installation
+
+If you installed via Homebrew or DMG:
+
+1. **Open WhisperHotkey.app** from Applications (or Spotlight)
+2. **Grant permissions** when prompted (Microphone, Accessibility, Input Monitoring)
+3. **Wait 2-3 seconds** for model to load (first launch downloads model if needed)
+4. **App runs in background** - look for tray icon in menu bar
+5. **Ready to use!** - Press your hotkey to test
+
+The app runs silently in the background. No console output is shown.
+
+### Building from Source
+
+If running via `cargo run --release`, you'll see console output:
 
 ```
 ✓ Config loaded from ~/.whisper-hotkey/config.toml
@@ -31,9 +45,17 @@ Press Ctrl+C to exit.
 5. **Release** the hotkey
 6. **Text appears** at cursor in ~2 seconds
 
-## Expected Console Output
+## Viewing Logs (Optional)
 
-During transcription:
+**For Homebrew/DMG users:** App runs silently. No console output by default.
+
+**To see logs if needed:**
+```bash
+# View crash/error logs
+tail -f ~/.whisper-hotkey/crash.log
+```
+
+**For developers (cargo run):** You'll see real-time output:
 
 ```
 🎤 Hotkey pressed - recording started
