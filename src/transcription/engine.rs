@@ -217,6 +217,122 @@ unsafe impl Send for TranscriptionEngine {}
 #[allow(unsafe_code)]
 unsafe impl Sync for TranscriptionEngine {}
 
+/// Manages multiple transcription engines with preloading and lazy loading
+pub struct ModelManager {
+    /// Preloaded engines (`model_type` -> engine)
+    preloaded: std::collections::HashMap<String, Arc<TranscriptionEngine>>,
+    /// Lazy loading configs for non-preloaded models
+    lazy_configs: std::collections::HashMap<String, LazyModelConfig>,
+    /// Models currently being loaded (prevents concurrent load race condition)
+    loading: std::collections::HashSet<String>,
+}
+
+/// Configuration for lazy-loading a model
+struct LazyModelConfig {
+    model_path: std::path::PathBuf,
+    threads: usize,
+    beam_size: usize,
+    language: Option<String>,
+}
+
+impl ModelManager {
+    /// Creates new `ModelManager` and preloads models where `profile.preload=true`
+    ///
+    /// # Errors
+    /// Returns error if any preloaded model fails to load
+    pub fn new(profiles: &[crate::config::TranscriptionProfile]) -> Result<Self> {
+        use std::collections::{HashMap, HashSet};
+
+        let mut preloaded = HashMap::new();
+        let mut lazy_configs = HashMap::new();
+
+        for profile in profiles {
+            let model_name = profile.name().to_owned();
+            let model_path = crate::config::Config::expand_path(&profile.model_path())?;
+
+            if profile.preload {
+                // Preload model at startup
+                tracing::info!("preloading model: {}", model_name);
+                let engine = Arc::new(TranscriptionEngine::new(
+                    &model_path,
+                    profile.threads,
+                    profile.beam_size,
+                    profile.language.clone(),
+                )?);
+                preloaded.insert(model_name, engine);
+            } else {
+                // Store config for lazy loading
+                tracing::info!("deferring load for model: {}", model_name);
+                lazy_configs.insert(
+                    model_name,
+                    LazyModelConfig {
+                        model_path,
+                        threads: profile.threads,
+                        beam_size: profile.beam_size,
+                        language: profile.language.clone(),
+                    },
+                );
+            }
+        }
+
+        Ok(Self {
+            preloaded,
+            lazy_configs,
+            loading: HashSet::new(),
+        })
+    }
+
+    /// Gets engine for model (preloaded or lazy loads on first use)
+    ///
+    /// # Errors
+    /// Returns error if model not found in config or fails to load
+    pub fn get_or_load(&mut self, model_name: &str) -> Result<Arc<TranscriptionEngine>> {
+        // Return preloaded engine if exists (fast path)
+        if let Some(engine) = self.preloaded.get(model_name) {
+            return Ok(Arc::clone(engine));
+        }
+
+        // Check if currently being loaded by another thread
+        if self.loading.contains(model_name) {
+            anyhow::bail!(
+                "model is currently being loaded by another thread: {model_name} (retry after load completes)"
+            );
+        }
+
+        // Lazy load if config exists
+        if let Some(config) = self.lazy_configs.remove(model_name) {
+            // Mark as loading to prevent concurrent loads
+            self.loading.insert(model_name.to_owned());
+
+            tracing::info!("lazy loading model: {}", model_name);
+            let load_result = TranscriptionEngine::new(
+                &config.model_path,
+                config.threads,
+                config.beam_size,
+                config.language,
+            );
+
+            // Remove from loading set before returning (cleanup in all paths)
+            self.loading.remove(model_name);
+
+            // Handle load result
+            let engine = Arc::new(load_result?);
+            self.preloaded
+                .insert(model_name.to_owned(), Arc::clone(&engine));
+            return Ok(engine);
+        }
+
+        anyhow::bail!("model not found in configuration: {model_name}")
+    }
+
+    /// Returns whether a model is currently loaded (preloaded or lazily loaded)
+    #[must_use]
+    #[allow(dead_code)] // Will be used for UI feedback
+    pub fn is_loaded(&self, model_name: &str) -> bool {
+        self.preloaded.contains_key(model_name)
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::print_stderr)] // Test diagnostics
 mod tests {
@@ -616,5 +732,177 @@ mod tests {
                 "Expected BeamSearch with patience=-1.0 for beam_size={beam_size}"
             );
         }
+    }
+
+    #[test]
+    fn test_model_manager_new_empty_profiles() {
+        let profiles = vec![];
+        let manager = ModelManager::new(&profiles).unwrap();
+        assert_eq!(manager.preloaded.len(), 0);
+        assert_eq!(manager.lazy_configs.len(), 0);
+        assert_eq!(manager.loading.len(), 0);
+    }
+
+    #[test]
+    fn test_model_manager_new_preload_false() {
+        use crate::config::{HotkeyConfig, ModelType, TranscriptionProfile};
+
+        let profiles = vec![TranscriptionProfile {
+            name: Some("test-model".to_owned()),
+            model_type: ModelType::BaseEn,
+            hotkey: HotkeyConfig::default(),
+            preload: false,
+            threads: 4,
+            beam_size: 1,
+            language: Some("en".to_owned()),
+        }];
+
+        let manager = ModelManager::new(&profiles).unwrap();
+        assert_eq!(manager.preloaded.len(), 0);
+        assert_eq!(manager.lazy_configs.len(), 1);
+        assert!(manager.lazy_configs.contains_key("test-model"));
+    }
+
+    #[test]
+    fn test_model_manager_get_or_load_model_not_found() {
+        let profiles = vec![];
+        let mut manager = ModelManager::new(&profiles).unwrap();
+
+        let result = manager.get_or_load("nonexistent");
+        assert!(result.is_err());
+        if let Err(err) = result {
+            assert!(err.to_string().contains("model not found in configuration"));
+        }
+    }
+
+    #[test]
+    fn test_model_manager_is_loaded_false() {
+        use crate::config::{HotkeyConfig, ModelType, TranscriptionProfile};
+
+        let profiles = vec![TranscriptionProfile {
+            name: Some("test-model".to_owned()),
+            model_type: ModelType::BaseEn,
+            hotkey: HotkeyConfig::default(),
+            preload: false,
+            threads: 4,
+            beam_size: 1,
+            language: Some("en".to_owned()),
+        }];
+
+        let manager = ModelManager::new(&profiles).unwrap();
+        assert!(!manager.is_loaded("test-model"));
+    }
+
+    #[test]
+    fn test_model_manager_multiple_profiles_mixed_preload() {
+        use crate::config::{HotkeyConfig, ModelType, TranscriptionProfile};
+
+        let profiles = vec![
+            TranscriptionProfile {
+                name: Some("lazy-model".to_owned()),
+                model_type: ModelType::BaseEn,
+                hotkey: HotkeyConfig {
+                    modifiers: vec!["Command".to_owned()],
+                    key: "A".to_owned(),
+                },
+                preload: false,
+                threads: 4,
+                beam_size: 1,
+                language: Some("en".to_owned()),
+            },
+            TranscriptionProfile {
+                name: Some("another-lazy".to_owned()),
+                model_type: ModelType::Small,
+                hotkey: HotkeyConfig {
+                    modifiers: vec!["Command".to_owned()],
+                    key: "B".to_owned(),
+                },
+                preload: false,
+                threads: 8,
+                beam_size: 5,
+                language: Some("es".to_owned()),
+            },
+        ];
+
+        let manager = ModelManager::new(&profiles).unwrap();
+        assert_eq!(manager.preloaded.len(), 0);
+        assert_eq!(manager.lazy_configs.len(), 2);
+        assert!(manager.lazy_configs.contains_key("lazy-model"));
+        assert!(manager.lazy_configs.contains_key("another-lazy"));
+    }
+
+    #[test]
+    fn test_model_manager_lazy_config_stores_correct_values() {
+        use crate::config::{HotkeyConfig, ModelType, TranscriptionProfile};
+
+        let profiles = vec![TranscriptionProfile {
+            name: Some("custom-model".to_owned()),
+            model_type: ModelType::Small,
+            hotkey: HotkeyConfig::default(),
+            preload: false,
+            threads: 8,
+            beam_size: 5,
+            language: Some("es".to_owned()),
+        }];
+
+        let manager = ModelManager::new(&profiles).unwrap();
+        let config = manager.lazy_configs.get("custom-model").unwrap();
+        assert_eq!(config.threads, 8);
+        assert_eq!(config.beam_size, 5);
+        assert_eq!(config.language, Some("es".to_owned()));
+        assert!(config.model_path.to_string_lossy().contains("small"));
+    }
+
+    #[test]
+    #[ignore = "requires actual model file"]
+    fn test_model_manager_get_or_load_lazy() {
+        use crate::config::{HotkeyConfig, ModelType, TranscriptionProfile};
+
+        let profiles = vec![TranscriptionProfile {
+            name: Some("test-model".to_owned()),
+            model_type: ModelType::BaseEn,
+            hotkey: HotkeyConfig::default(),
+            preload: false,
+            threads: 4,
+            beam_size: 1,
+            language: Some("en".to_owned()),
+        }];
+
+        let mut manager = ModelManager::new(&profiles).unwrap();
+        assert!(!manager.is_loaded("test-model"));
+
+        // First get_or_load should trigger lazy load
+        let engine = manager.get_or_load("test-model").unwrap();
+        assert!(manager.is_loaded("test-model"));
+
+        // Second get_or_load should return cached engine
+        let engine2 = manager.get_or_load("test-model").unwrap();
+        assert!(Arc::ptr_eq(&engine, &engine2));
+    }
+
+    #[test]
+    #[ignore = "requires actual model file"]
+    fn test_model_manager_new_with_preload() {
+        use crate::config::{HotkeyConfig, ModelType, TranscriptionProfile};
+
+        let profiles = vec![TranscriptionProfile {
+            name: Some("preloaded-model".to_owned()),
+            model_type: ModelType::BaseEn,
+            hotkey: HotkeyConfig::default(),
+            preload: true,
+            threads: 4,
+            beam_size: 1,
+            language: Some("en".to_owned()),
+        }];
+
+        let manager = ModelManager::new(&profiles).unwrap();
+        assert_eq!(manager.preloaded.len(), 1);
+        assert_eq!(manager.lazy_configs.len(), 0);
+        assert!(manager.is_loaded("preloaded-model"));
+
+        // get_or_load should return preloaded engine immediately
+        let mut manager_mut = manager;
+        let engine = manager_mut.get_or_load("preloaded-model").unwrap();
+        assert!(Arc::strong_count(&engine) >= 1);
     }
 }

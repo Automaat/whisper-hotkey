@@ -169,9 +169,70 @@ fn is_default_aliases(val: &AliasesConfig) -> bool {
     val.enabled && val.threshold == 0.8 && val.entries.is_empty()
 }
 
+fn is_default_profiles(val: &[TranscriptionProfile]) -> bool {
+    if val.len() != 1 {
+        return false;
+    }
+    let profile = &val[0];
+    profile.name.is_none()
+        && profile.model_type == ModelType::BaseEn
+        && is_default_hotkey(&profile.hotkey)
+        && profile.preload
+        && profile.threads == 4
+        && profile.beam_size == 1
+        && profile.language.as_deref() == Some("en")
+}
+
+/// Transcription profile combining hotkey and model configuration
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct TranscriptionProfile {
+    /// Optional explicit profile name (auto-generated if multiple profiles share same `model_type`)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// Model type (e.g., "base.en", "small", "tiny")
+    pub model_type: ModelType,
+    /// Hotkey configuration (inlined)
+    #[serde(flatten)]
+    pub hotkey: HotkeyConfig,
+    /// Preload model at startup
+    #[serde(default = "default_preload")]
+    pub preload: bool,
+    /// Number of CPU threads for inference
+    #[serde(default = "default_threads")]
+    pub threads: usize,
+    /// Beam search width (higher = slower but more accurate)
+    #[serde(default = "default_beam_size")]
+    pub beam_size: usize,
+    /// Language code (None = auto-detect)
+    #[serde(default = "default_language")]
+    pub language: Option<String>,
+}
+
+impl TranscriptionProfile {
+    /// Get profile name (explicit name or derived from model type)
+    #[must_use]
+    pub fn name(&self) -> &str {
+        self.name
+            .as_deref()
+            .unwrap_or_else(|| self.model_type.as_str())
+    }
+
+    /// Get model path for this profile
+    #[must_use]
+    pub fn model_path(&self) -> String {
+        self.model_type.model_path()
+    }
+}
+
 /// Application configuration
-#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Config {
+    /// Transcription profiles (each with hotkey + model config)
+    #[serde(
+        default = "default_profiles",
+        skip_serializing_if = "is_default_profiles"
+    )]
+    pub profiles: Vec<TranscriptionProfile>,
     /// Hotkey configuration
     #[serde(default, skip_serializing_if = "is_default_hotkey")]
     #[allow(dead_code)] // Used in Phase 2+
@@ -285,6 +346,18 @@ const fn default_beam_size() -> usize {
 #[allow(clippy::unnecessary_wraps)]
 fn default_language() -> Option<String> {
     Some("en".to_owned()) // English by default (skips auto-detect overhead)
+}
+
+fn default_profiles() -> Vec<TranscriptionProfile> {
+    vec![TranscriptionProfile {
+        name: None,
+        model_type: ModelType::BaseEn,
+        hotkey: HotkeyConfig::default(),
+        preload: default_preload(),
+        threads: default_threads(),
+        beam_size: default_beam_size(),
+        language: default_language(),
+    }]
 }
 
 impl<'de> Deserialize<'de> for ModelConfig {
@@ -436,6 +509,20 @@ impl Default for AliasesConfig {
     }
 }
 
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            profiles: default_profiles(),
+            hotkey: HotkeyConfig::default(),
+            audio: AudioConfig::default(),
+            model: ModelConfig::default(),
+            telemetry: TelemetryConfig::default(),
+            recording: RecordingConfig::default(),
+            aliases: AliasesConfig::default(),
+        }
+    }
+}
+
 impl Config {
     /// Load config from ~/.whisper-hotkey/config.toml
     ///
@@ -484,7 +571,18 @@ impl Config {
             contents = fs::read_to_string(&config_path).context("failed to read config file")?;
         }
 
-        let config: Self = toml::from_str(&contents).context("failed to parse config TOML")?;
+        let mut config: Self = toml::from_str(&contents).context("failed to parse config TOML")?;
+
+        // Migrate from old [hotkey]/[model] format to [[profiles]]
+        // Check if profiles is empty/default AND old sections exist (non-default values)
+        let needs_migration = (config.profiles.is_empty() || is_default_profiles(&config.profiles))
+            && (!is_default_hotkey(&config.hotkey) || !is_default_model(&config.model));
+
+        if needs_migration {
+            tracing::info!("migrating config from old [hotkey]/[model] format to [[profiles]]");
+            config.migrate_to_profiles();
+            config.save().context("failed to save migrated config")?;
+        }
 
         // Check if [model] section had old fields (name/path) and save migrated version
         let had_old_fields = contents
@@ -498,6 +596,20 @@ impl Config {
             tracing::info!("migrating config: removing deprecated 'name' and 'path' fields");
             config.save().context("failed to save migrated config")?;
         }
+
+        // Ensure unique profile names (auto-generate for duplicates)
+        config.ensure_unique_names();
+
+        // Ensure at least one profile exists
+        if config.profiles.is_empty() {
+            anyhow::bail!(
+                "config must contain at least one profile - add a [[profiles]] section to {}",
+                Self::config_path()?.display()
+            );
+        }
+
+        // Validate hotkey conflicts
+        config.validate_hotkeys()?;
 
         Ok(config)
     }
@@ -592,6 +704,87 @@ impl Config {
         } else {
             Ok(PathBuf::from(path))
         }
+    }
+
+    /// Migrate from old [hotkey]/[model] format to [[profiles]]
+    /// Converts single hotkey + model config into a single profile
+    fn migrate_to_profiles(&mut self) {
+        // Only migrate if profiles is empty or using defaults
+        if !self.profiles.is_empty() && !is_default_profiles(&self.profiles) {
+            return;
+        }
+
+        // Create single profile from old hotkey + model
+        self.profiles = vec![TranscriptionProfile {
+            name: None,
+            model_type: self.model.model_type,
+            hotkey: self.hotkey.clone(),
+            preload: self.model.preload,
+            threads: self.model.threads,
+            beam_size: self.model.beam_size,
+            language: self.model.language.clone(),
+        }];
+    }
+
+    /// Ensure unique profile names by auto-generating suffixes for duplicates
+    fn ensure_unique_names(&mut self) {
+        use std::collections::HashMap;
+
+        // Count occurrences of each derived name
+        let mut name_counts: HashMap<String, usize> = HashMap::new();
+        for profile in &self.profiles {
+            let derived_name = profile.model_type.as_str().to_owned();
+            *name_counts.entry(derived_name).or_insert(0) += 1;
+        }
+
+        // Auto-generate unique names for duplicates
+        let mut name_counters: HashMap<String, usize> = HashMap::new();
+        for profile in &mut self.profiles {
+            if profile.name.is_none() {
+                let derived_name = profile.model_type.as_str().to_owned();
+                if *name_counts.get(&derived_name).unwrap_or(&0) > 1 {
+                    // Multiple profiles with same model_type, generate unique name
+                    let counter = name_counters.entry(derived_name.clone()).or_insert(0);
+                    *counter += 1;
+                    profile.name = Some(format!("{derived_name}-{counter}"));
+                }
+            }
+        }
+    }
+
+    /// Validate no duplicate hotkeys across profiles
+    ///
+    /// # Errors
+    /// Returns error if duplicate hotkeys are found
+    fn validate_hotkeys(&self) -> Result<()> {
+        use std::collections::HashSet;
+
+        let mut seen = HashSet::new();
+        for profile in &self.profiles {
+            // Sort modifiers for consistent signature (order-independent)
+            let mut sorted_mods = profile.hotkey.modifiers.clone();
+            sorted_mods.sort();
+            let hotkey_sig = format!("{:?}+{}", sorted_mods, profile.hotkey.key);
+
+            if !seen.insert(hotkey_sig.clone()) {
+                anyhow::bail!(
+                    "duplicate hotkey detected: {} (profiles: {})",
+                    hotkey_sig,
+                    self.profiles
+                        .iter()
+                        .filter(|p| {
+                            let mut sorted_mods = p.hotkey.modifiers.clone();
+                            sorted_mods.sort();
+                            format!("{:?}+{}", sorted_mods, p.hotkey.key) == hotkey_sig
+                        })
+                        .map(TranscriptionProfile::name)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -920,6 +1113,7 @@ log_path = "/test/log.txt"
 
         // Test with non-default values - should serialize them
         let config = Config {
+            profiles: default_profiles(),
             hotkey: HotkeyConfig {
                 modifiers: vec!["Command".to_owned()],
                 key: "V".to_owned(),
@@ -957,6 +1151,7 @@ log_path = "/test/log.txt"
     #[test]
     fn test_config_roundtrip() {
         let original = Config {
+            profiles: default_profiles(),
             hotkey: HotkeyConfig {
                 modifiers: vec!["Command".to_owned()],
                 key: "V".to_owned(),
@@ -1241,6 +1436,7 @@ log_path = "/custom/log.txt"
         env::set_var("HOME", test_dir.to_str().unwrap());
 
         let config = Config {
+            profiles: default_profiles(),
             hotkey: HotkeyConfig {
                 modifiers: vec!["Command".to_owned()],
                 key: "T".to_owned(),
@@ -1615,5 +1811,475 @@ cleanup_interval_hours = 1
         }
 
         let _ = fs::remove_dir_all(&test_home);
+    }
+
+    #[test]
+    fn test_transcription_profile_name_explicit() {
+        let profile = TranscriptionProfile {
+            name: Some("custom-name".to_owned()),
+            model_type: ModelType::BaseEn,
+            hotkey: HotkeyConfig::default(),
+            preload: true,
+            threads: 4,
+            beam_size: 1,
+            language: Some("en".to_owned()),
+        };
+        assert_eq!(profile.name(), "custom-name");
+    }
+
+    #[test]
+    fn test_transcription_profile_name_derived() {
+        let profile = TranscriptionProfile {
+            name: None,
+            model_type: ModelType::Small,
+            hotkey: HotkeyConfig::default(),
+            preload: true,
+            threads: 4,
+            beam_size: 1,
+            language: Some("en".to_owned()),
+        };
+        assert_eq!(profile.name(), "small");
+    }
+
+    #[test]
+    fn test_transcription_profile_model_path() {
+        let profile = TranscriptionProfile {
+            name: None,
+            model_type: ModelType::BaseEn,
+            hotkey: HotkeyConfig::default(),
+            preload: true,
+            threads: 4,
+            beam_size: 1,
+            language: Some("en".to_owned()),
+        };
+        let path = profile.model_path();
+        assert!(path.contains("base.en"));
+        assert!(path.contains(".whisper-hotkey/models"));
+    }
+
+    #[test]
+    fn test_is_default_profiles_true() {
+        let profiles = default_profiles();
+        assert!(is_default_profiles(&profiles));
+    }
+
+    #[test]
+    fn test_is_default_profiles_false_multiple() {
+        let profiles = vec![
+            TranscriptionProfile {
+                name: None,
+                model_type: ModelType::BaseEn,
+                hotkey: HotkeyConfig::default(),
+                preload: true,
+                threads: 4,
+                beam_size: 1,
+                language: Some("en".to_owned()),
+            },
+            TranscriptionProfile {
+                name: None,
+                model_type: ModelType::Small,
+                hotkey: HotkeyConfig {
+                    modifiers: vec!["Shift".to_owned()],
+                    key: "X".to_owned(),
+                },
+                preload: true,
+                threads: 4,
+                beam_size: 1,
+                language: Some("en".to_owned()),
+            },
+        ];
+        assert!(!is_default_profiles(&profiles));
+    }
+
+    #[test]
+    fn test_is_default_profiles_false_custom() {
+        let profiles = vec![TranscriptionProfile {
+            name: Some("custom".to_owned()),
+            model_type: ModelType::BaseEn,
+            hotkey: HotkeyConfig::default(),
+            preload: true,
+            threads: 4,
+            beam_size: 1,
+            language: Some("en".to_owned()),
+        }];
+        assert!(!is_default_profiles(&profiles));
+    }
+
+    #[test]
+    fn test_config_migrate_to_profiles() {
+        let mut config = Config {
+            profiles: vec![],
+            hotkey: HotkeyConfig {
+                modifiers: vec!["Command".to_owned(), "Shift".to_owned()],
+                key: "V".to_owned(),
+            },
+            audio: AudioConfig::default(),
+            model: ModelConfig {
+                model_type: ModelType::Small,
+                preload: false,
+                threads: 8,
+                beam_size: 5,
+                language: Some("es".to_owned()),
+            },
+            telemetry: TelemetryConfig::default(),
+            recording: RecordingConfig::default(),
+            aliases: AliasesConfig::default(),
+        };
+
+        config.migrate_to_profiles();
+
+        assert_eq!(config.profiles.len(), 1);
+        assert_eq!(config.profiles[0].model_type, ModelType::Small);
+        assert_eq!(config.profiles[0].threads, 8);
+        assert_eq!(config.profiles[0].beam_size, 5);
+        assert_eq!(config.profiles[0].language, Some("es".to_owned()));
+        assert_eq!(config.profiles[0].hotkey.key, "V");
+        assert_eq!(config.profiles[0].hotkey.modifiers.len(), 2);
+    }
+
+    #[test]
+    fn test_config_migrate_to_profiles_noop_if_profiles_exist() {
+        let mut config = Config {
+            profiles: vec![TranscriptionProfile {
+                name: Some("existing".to_owned()),
+                model_type: ModelType::Tiny,
+                hotkey: HotkeyConfig {
+                    modifiers: vec!["Alt".to_owned()],
+                    key: "Q".to_owned(),
+                },
+                preload: true,
+                threads: 2,
+                beam_size: 3,
+                language: Some("fr".to_owned()),
+            }],
+            hotkey: HotkeyConfig {
+                modifiers: vec!["Command".to_owned()],
+                key: "V".to_owned(),
+            },
+            audio: AudioConfig::default(),
+            model: ModelConfig {
+                model_type: ModelType::Small,
+                preload: false,
+                threads: 8,
+                beam_size: 5,
+                language: Some("es".to_owned()),
+            },
+            telemetry: TelemetryConfig::default(),
+            recording: RecordingConfig::default(),
+            aliases: AliasesConfig::default(),
+        };
+
+        config.migrate_to_profiles();
+
+        // Should not change existing profiles
+        assert_eq!(config.profiles.len(), 1);
+        assert_eq!(config.profiles[0].name, Some("existing".to_owned()));
+        assert_eq!(config.profiles[0].model_type, ModelType::Tiny);
+    }
+
+    #[test]
+    fn test_config_ensure_unique_names_single_profile() {
+        let mut config = Config {
+            profiles: vec![TranscriptionProfile {
+                name: None,
+                model_type: ModelType::BaseEn,
+                hotkey: HotkeyConfig::default(),
+                preload: true,
+                threads: 4,
+                beam_size: 1,
+                language: Some("en".to_owned()),
+            }],
+            hotkey: HotkeyConfig::default(),
+            audio: AudioConfig::default(),
+            model: ModelConfig::default(),
+            telemetry: TelemetryConfig::default(),
+            recording: RecordingConfig::default(),
+            aliases: AliasesConfig::default(),
+        };
+
+        config.ensure_unique_names();
+
+        // Single profile should keep derived name (no suffix)
+        assert_eq!(config.profiles[0].name, None);
+    }
+
+    #[test]
+    fn test_config_ensure_unique_names_duplicates() {
+        let mut config = Config {
+            profiles: vec![
+                TranscriptionProfile {
+                    name: None,
+                    model_type: ModelType::BaseEn,
+                    hotkey: HotkeyConfig {
+                        modifiers: vec!["Command".to_owned()],
+                        key: "A".to_owned(),
+                    },
+                    preload: true,
+                    threads: 4,
+                    beam_size: 1,
+                    language: Some("en".to_owned()),
+                },
+                TranscriptionProfile {
+                    name: None,
+                    model_type: ModelType::BaseEn,
+                    hotkey: HotkeyConfig {
+                        modifiers: vec!["Command".to_owned()],
+                        key: "B".to_owned(),
+                    },
+                    preload: true,
+                    threads: 4,
+                    beam_size: 1,
+                    language: Some("en".to_owned()),
+                },
+                TranscriptionProfile {
+                    name: None,
+                    model_type: ModelType::Small,
+                    hotkey: HotkeyConfig {
+                        modifiers: vec!["Command".to_owned()],
+                        key: "C".to_owned(),
+                    },
+                    preload: true,
+                    threads: 4,
+                    beam_size: 1,
+                    language: Some("en".to_owned()),
+                },
+            ],
+            hotkey: HotkeyConfig::default(),
+            audio: AudioConfig::default(),
+            model: ModelConfig::default(),
+            telemetry: TelemetryConfig::default(),
+            recording: RecordingConfig::default(),
+            aliases: AliasesConfig::default(),
+        };
+
+        config.ensure_unique_names();
+
+        // Two base.en profiles should get unique names
+        assert_eq!(config.profiles[0].name, Some("base.en-1".to_owned()));
+        assert_eq!(config.profiles[1].name, Some("base.en-2".to_owned()));
+        // Single small profile should keep derived name
+        assert_eq!(config.profiles[2].name, None);
+    }
+
+    #[test]
+    fn test_config_ensure_unique_names_preserves_explicit() {
+        let mut config = Config {
+            profiles: vec![
+                TranscriptionProfile {
+                    name: Some("custom-1".to_owned()),
+                    model_type: ModelType::BaseEn,
+                    hotkey: HotkeyConfig {
+                        modifiers: vec!["Command".to_owned()],
+                        key: "A".to_owned(),
+                    },
+                    preload: true,
+                    threads: 4,
+                    beam_size: 1,
+                    language: Some("en".to_owned()),
+                },
+                TranscriptionProfile {
+                    name: None,
+                    model_type: ModelType::BaseEn,
+                    hotkey: HotkeyConfig {
+                        modifiers: vec!["Command".to_owned()],
+                        key: "B".to_owned(),
+                    },
+                    preload: true,
+                    threads: 4,
+                    beam_size: 1,
+                    language: Some("en".to_owned()),
+                },
+            ],
+            hotkey: HotkeyConfig::default(),
+            audio: AudioConfig::default(),
+            model: ModelConfig::default(),
+            telemetry: TelemetryConfig::default(),
+            recording: RecordingConfig::default(),
+            aliases: AliasesConfig::default(),
+        };
+
+        config.ensure_unique_names();
+
+        // Explicit name should be preserved
+        assert_eq!(config.profiles[0].name, Some("custom-1".to_owned()));
+        // Second profile gets unique name (base.en-1, not base.en-2 since first has explicit name)
+        assert_eq!(config.profiles[1].name, Some("base.en-1".to_owned()));
+    }
+
+    #[test]
+    fn test_config_validate_hotkeys_no_duplicates() {
+        let config = Config {
+            profiles: vec![
+                TranscriptionProfile {
+                    name: None,
+                    model_type: ModelType::BaseEn,
+                    hotkey: HotkeyConfig {
+                        modifiers: vec!["Command".to_owned(), "Shift".to_owned()],
+                        key: "A".to_owned(),
+                    },
+                    preload: true,
+                    threads: 4,
+                    beam_size: 1,
+                    language: Some("en".to_owned()),
+                },
+                TranscriptionProfile {
+                    name: None,
+                    model_type: ModelType::Small,
+                    hotkey: HotkeyConfig {
+                        modifiers: vec!["Command".to_owned(), "Option".to_owned()],
+                        key: "B".to_owned(),
+                    },
+                    preload: true,
+                    threads: 4,
+                    beam_size: 1,
+                    language: Some("en".to_owned()),
+                },
+            ],
+            hotkey: HotkeyConfig::default(),
+            audio: AudioConfig::default(),
+            model: ModelConfig::default(),
+            telemetry: TelemetryConfig::default(),
+            recording: RecordingConfig::default(),
+            aliases: AliasesConfig::default(),
+        };
+
+        assert!(config.validate_hotkeys().is_ok());
+    }
+
+    #[test]
+    fn test_config_validate_hotkeys_duplicate_exact() {
+        let config = Config {
+            profiles: vec![
+                TranscriptionProfile {
+                    name: Some("profile-1".to_owned()),
+                    model_type: ModelType::BaseEn,
+                    hotkey: HotkeyConfig {
+                        modifiers: vec!["Command".to_owned(), "Shift".to_owned()],
+                        key: "A".to_owned(),
+                    },
+                    preload: true,
+                    threads: 4,
+                    beam_size: 1,
+                    language: Some("en".to_owned()),
+                },
+                TranscriptionProfile {
+                    name: Some("profile-2".to_owned()),
+                    model_type: ModelType::Small,
+                    hotkey: HotkeyConfig {
+                        modifiers: vec!["Command".to_owned(), "Shift".to_owned()],
+                        key: "A".to_owned(),
+                    },
+                    preload: true,
+                    threads: 4,
+                    beam_size: 1,
+                    language: Some("en".to_owned()),
+                },
+            ],
+            hotkey: HotkeyConfig::default(),
+            audio: AudioConfig::default(),
+            model: ModelConfig::default(),
+            telemetry: TelemetryConfig::default(),
+            recording: RecordingConfig::default(),
+            aliases: AliasesConfig::default(),
+        };
+
+        let result = config.validate_hotkeys();
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("duplicate hotkey"));
+        assert!(err.contains("profile-1") || err.contains("profile-2"));
+    }
+
+    #[test]
+    fn test_config_validate_hotkeys_duplicate_order_independent() {
+        let config = Config {
+            profiles: vec![
+                TranscriptionProfile {
+                    name: Some("profile-1".to_owned()),
+                    model_type: ModelType::BaseEn,
+                    hotkey: HotkeyConfig {
+                        modifiers: vec!["Command".to_owned(), "Shift".to_owned()],
+                        key: "A".to_owned(),
+                    },
+                    preload: true,
+                    threads: 4,
+                    beam_size: 1,
+                    language: Some("en".to_owned()),
+                },
+                TranscriptionProfile {
+                    name: Some("profile-2".to_owned()),
+                    model_type: ModelType::Small,
+                    hotkey: HotkeyConfig {
+                        modifiers: vec!["Shift".to_owned(), "Command".to_owned()],
+                        key: "A".to_owned(),
+                    },
+                    preload: true,
+                    threads: 4,
+                    beam_size: 1,
+                    language: Some("en".to_owned()),
+                },
+            ],
+            hotkey: HotkeyConfig::default(),
+            audio: AudioConfig::default(),
+            model: ModelConfig::default(),
+            telemetry: TelemetryConfig::default(),
+            recording: RecordingConfig::default(),
+            aliases: AliasesConfig::default(),
+        };
+
+        let result = config.validate_hotkeys();
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("duplicate hotkey"));
+    }
+
+    #[test]
+    fn test_default_profiles_creates_single_profile() {
+        let profiles = default_profiles();
+        assert_eq!(profiles.len(), 1);
+        assert_eq!(profiles[0].model_type, ModelType::BaseEn);
+        assert_eq!(profiles[0].name, None);
+        assert!(profiles[0].preload);
+        assert_eq!(profiles[0].threads, 4);
+        assert_eq!(profiles[0].beam_size, 1);
+        assert_eq!(profiles[0].language, Some("en".to_owned()));
+    }
+
+    #[test]
+    fn test_parse_config_with_profiles() {
+        let toml = r#"
+[[profiles]]
+model_type = "small"
+modifiers = ["Command", "Shift"]
+key = "A"
+preload = true
+threads = 8
+beam_size = 5
+language = "en"
+
+[[profiles]]
+name = "spanish-tiny"
+model_type = "tiny"
+modifiers = ["Command", "Option"]
+key = "S"
+preload = false
+threads = 4
+beam_size = 1
+language = "es"
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.profiles.len(), 2);
+        assert_eq!(config.profiles[0].model_type, ModelType::Small);
+        assert_eq!(config.profiles[0].threads, 8);
+        assert_eq!(config.profiles[1].name, Some("spanish-tiny".to_owned()));
+        assert_eq!(config.profiles[1].model_type, ModelType::Tiny);
+        assert_eq!(config.profiles[1].language, Some("es".to_owned()));
+    }
+
+    #[test]
+    fn test_config_default_has_one_profile() {
+        let config = Config::default();
+        assert_eq!(config.profiles.len(), 1);
+        assert_eq!(config.profiles[0].model_type, ModelType::BaseEn);
     }
 }
