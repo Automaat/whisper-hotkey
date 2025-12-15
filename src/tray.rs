@@ -184,8 +184,10 @@ impl TrayManager {
 
     fn format_profile_label(profile: &crate::config::TranscriptionProfile) -> String {
         let hotkey_str = Self::format_hotkey(&profile.hotkey.modifiers, &profile.hotkey.key);
-        let model_name = profile.model_type.as_str().to_owned();
-        let profile_name = profile.name.as_ref().unwrap_or(&model_name);
+        let profile_name = profile
+            .name
+            .as_deref()
+            .unwrap_or(profile.model_type.as_str());
         format!(
             "{} ({}): {}",
             profile_name,
