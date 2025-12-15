@@ -6,8 +6,9 @@ use global_hotkey::{
 use std::sync::{Arc, Mutex};
 use tracing::{debug, info, warn};
 
+use crate::alias;
 use crate::audio::AudioCapture;
-use crate::config::HotkeyConfig;
+use crate::config::{AliasesConfig, HotkeyConfig};
 use crate::input::cgevent;
 use crate::transcription::TranscriptionEngine;
 
@@ -30,6 +31,7 @@ pub struct HotkeyManager {
     audio: Arc<Mutex<AudioCapture>>,
     transcription: Option<Arc<TranscriptionEngine>>,
     recording_enabled: bool,
+    aliases: Arc<AliasesConfig>,
 }
 
 impl HotkeyManager {
@@ -42,6 +44,7 @@ impl HotkeyManager {
         audio: Arc<Mutex<AudioCapture>>,
         transcription: Option<Arc<TranscriptionEngine>>,
         recording_enabled: bool,
+        aliases: Arc<AliasesConfig>,
     ) -> Result<Self> {
         let manager = GlobalHotKeyManager::new().context("failed to create hotkey manager")?;
 
@@ -62,6 +65,7 @@ impl HotkeyManager {
             audio,
             transcription,
             recording_enabled,
+            aliases,
         })
     }
 
@@ -194,6 +198,7 @@ impl HotkeyManager {
         if let Some(engine) = &self.transcription {
             let engine = Arc::clone(engine);
             let state_arc = Arc::clone(&self.state);
+            let aliases = Arc::clone(&self.aliases);
 
             std::thread::spawn(move || {
                 match engine.transcribe(&samples) {
@@ -207,14 +212,21 @@ impl HotkeyManager {
                             if text.len() > 50 { "..." } else { "" }
                         );
 
+                        // Apply alias matching
+                        let final_text = alias::apply_aliases(&text, &aliases);
+
                         // Insert text at cursor, only if non-empty
-                        if text.is_empty() {
+                        if final_text.is_empty() {
                             info!("🔇 No speech detected (silence or noise)");
-                        } else if cgevent::insert_text_safe(&text) {
-                            info!(text_len = text.len(), "✅ Inserted {} chars", text.len());
+                        } else if cgevent::insert_text_safe(&final_text) {
+                            info!(
+                                text_len = final_text.len(),
+                                "✅ Inserted {} chars",
+                                final_text.len()
+                            );
                         } else {
                             warn!(
-                                text_len = text.len(),
+                                text_len = final_text.len(),
                                 text_preview = %text_preview,
                                 "❌ Text insertion failed - check permissions"
                             );
