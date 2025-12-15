@@ -1,7 +1,5 @@
 # whisper-hotkey
 
-[![Documentation](https://img.shields.io/badge/docs-latest-blue.svg)](https://automaat.github.io/whisper-hotkey/)
-
 ![Whisper Hotkey logo](resources/logo.png)
 
 macOS background app for system-wide voice-to-text via hotkey using local Whisper.

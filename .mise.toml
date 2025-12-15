@@ -2,7 +2,6 @@
 rust = "1.91"  # edition2024 support for coreaudio-sys
 shellcheck = "0.11.0"
 actionlint = "1.7.9"
-mdbook = "0.4.43"
 
 [tasks.check]
 description = "Run all linters"
