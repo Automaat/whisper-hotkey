@@ -1,0 +1,15 @@
+[book]
+authors = ["Marcin Skalski"]
+language = "en"
+multilingual = false
+src = "src"
+title = "Whisper Hotkey Documentation"
+description = "macOS background app for system-wide voice-to-text via hotkey using local Whisper"
+
+[build]
+build-dir = "book"
+
+[output.html]
+git-repository-url = "https://github.com/Automaat/whisper-hotkey"
+edit-url-template = "https://github.com/Automaat/whisper-hotkey/edit/main/docs/{path}"
+site-url = "/whisper-hotkey/"
