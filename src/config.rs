@@ -103,25 +103,6 @@ impl ModelType {
     pub fn model_path(self) -> String {
         format!("~/.whisper-hotkey/models/ggml-{}.bin", self.as_str())
     }
-
-    /// Get all available model type variants
-    #[must_use]
-    pub fn variants() -> Vec<Self> {
-        vec![
-            Self::Tiny,
-            Self::TinyEn,
-            Self::Base,
-            Self::BaseEn,
-            Self::Small,
-            Self::SmallEn,
-            Self::Medium,
-            Self::MediumEn,
-            Self::Large,
-            Self::LargeV1,
-            Self::LargeV2,
-            Self::LargeV3,
-        ]
-    }
 }
 
 #[allow(clippy::derivable_impls)] // We want Small as default, not Tiny (first variant)
