@@ -182,6 +182,18 @@ impl TrayManager {
         }
     }
 
+    fn format_profile_label(profile: &crate::config::TranscriptionProfile) -> String {
+        let hotkey_str = Self::format_hotkey(&profile.hotkey.modifiers, &profile.hotkey.key);
+        let model_name = profile.model_type.as_str().to_owned();
+        let profile_name = profile.name.as_ref().unwrap_or(&model_name);
+        format!(
+            "{} ({}): {}",
+            profile_name,
+            hotkey_str,
+            profile.model_type.as_str()
+        )
+    }
+
     pub(crate) fn build_menu(config: &Config, app_state: Option<AppState>) -> Result<Menu> {
         let menu = Menu::new();
 
@@ -192,15 +204,7 @@ impl TrayManager {
 
         // Profile list (read-only)
         for profile in &config.profiles {
-            let hotkey_str = Self::format_hotkey(&profile.hotkey.modifiers, &profile.hotkey.key);
-            let model_name = profile.model_type.as_str().to_owned();
-            let profile_name = profile.name.as_ref().unwrap_or(&model_name);
-            let label = format!(
-                "{} ({}): {}",
-                profile_name,
-                hotkey_str,
-                profile.model_type.as_str()
-            );
+            let label = Self::format_profile_label(profile);
             menu.append(&MenuItem::new(&label, false, None))?;
         }
 
@@ -347,6 +351,93 @@ mod tests {
             },
             recording: RecordingConfig::default(),
             aliases: AliasesConfig::default(),
+        }
+    }
+
+    #[test]
+    fn test_format_profile_label_derived_name() {
+        let profile = crate::config::TranscriptionProfile {
+            name: None,
+            model_type: ModelType::Small,
+            hotkey: crate::config::HotkeyConfig {
+                modifiers: vec!["Control".to_owned(), "Option".to_owned()],
+                key: "Z".to_owned(),
+            },
+            preload: true,
+            threads: 4,
+            beam_size: 5,
+            language: None,
+        };
+        let label = TrayManager::format_profile_label(&profile);
+        assert_eq!(label, "small (Control+Option+Z): small");
+    }
+
+    #[test]
+    fn test_format_profile_label_explicit_name() {
+        let profile = crate::config::TranscriptionProfile {
+            name: Some("Custom Name".to_owned()),
+            model_type: ModelType::BaseEn,
+            hotkey: crate::config::HotkeyConfig {
+                modifiers: vec!["Command".to_owned(), "Shift".to_owned()],
+                key: "V".to_owned(),
+            },
+            preload: false,
+            threads: 2,
+            beam_size: 3,
+            language: Some("en".to_owned()),
+        };
+        let label = TrayManager::format_profile_label(&profile);
+        assert_eq!(label, "Custom Name (Command+Shift+V): base.en");
+    }
+
+    #[test]
+    fn test_format_profile_label_no_modifiers() {
+        let profile = crate::config::TranscriptionProfile {
+            name: Some("Quick".to_owned()),
+            model_type: ModelType::Tiny,
+            hotkey: crate::config::HotkeyConfig {
+                modifiers: vec![],
+                key: "F1".to_owned(),
+            },
+            preload: true,
+            threads: 1,
+            beam_size: 1,
+            language: None,
+        };
+        let label = TrayManager::format_profile_label(&profile);
+        assert_eq!(label, "Quick (F1): tiny");
+    }
+
+    #[test]
+    fn test_format_profile_label_various_models() {
+        let models = vec![
+            (ModelType::Tiny, "tiny"),
+            (ModelType::TinyEn, "tiny.en"),
+            (ModelType::Base, "base"),
+            (ModelType::BaseEn, "base.en"),
+            (ModelType::Small, "small"),
+            (ModelType::Medium, "medium"),
+            (ModelType::Large, "large"),
+        ];
+
+        for (model_type, expected_name) in models {
+            let profile = crate::config::TranscriptionProfile {
+                name: None,
+                model_type,
+                hotkey: crate::config::HotkeyConfig {
+                    modifiers: vec!["Command".to_owned()],
+                    key: "A".to_owned(),
+                },
+                preload: true,
+                threads: 4,
+                beam_size: 5,
+                language: None,
+            };
+            let label = TrayManager::format_profile_label(&profile);
+            assert_eq!(
+                label,
+                format!("{} (Command+A): {}", expected_name, expected_name)
+            );
         }
     }
 
