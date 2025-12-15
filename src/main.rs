@@ -177,7 +177,6 @@ async fn main() -> Result<()> {
     println!("Press Ctrl+C to exit or use menubar Quit option.\n");
 
     let receiver = GlobalHotKeyEvent::receiver();
-    let mut config = config; // Make config mutable for updates
 
     // Spawn periodic cleanup task if enabled
     if config.recording.cleanup_interval_hours > 0 {
@@ -215,25 +214,6 @@ async fn main() -> Result<()> {
             "periodic cleanup task spawned (interval: {} hours)",
             config.recording.cleanup_interval_hours
         );
-    }
-
-    // Helper to save config, log, and update menu after config changes
-    fn save_and_update(
-        config: &config::Config,
-        tray_manager: &mut tray::TrayManager,
-        success_msg: &str,
-        requires_restart: bool,
-    ) -> Result<()> {
-        config.save().context("failed to save config")?;
-        let msg = if requires_restart {
-            format!("{} (restart required)", success_msg)
-        } else {
-            success_msg.to_owned()
-        };
-        println!("✓ {}", msg);
-        tracing::info!("{}", success_msg.to_lowercase());
-        tray_manager.update_menu(config)?;
-        Ok(())
     }
 
     loop {
@@ -277,102 +257,6 @@ async fn main() -> Result<()> {
         if let Some(tray_cmd) = tray::TrayManager::poll_events() {
             tracing::debug!("tray command received: {:?}", tray_cmd);
             match tray_cmd {
-                tray::TrayCommand::UpdateHotkey { modifiers, key } => {
-                    config.hotkey.modifiers = modifiers;
-                    config.hotkey.key = key;
-                    if let Err(e) =
-                        save_and_update(&config, &mut tray_manager, "Hotkey updated", true)
-                    {
-                        tracing::error!("failed to update config: {:?}", e);
-                        println!("⚠ Failed to save config: {}", e);
-                    }
-                }
-                tray::TrayCommand::UpdateModel { model_type } => {
-                    config.model.model_type = model_type;
-                    if let Err(e) =
-                        save_and_update(&config, &mut tray_manager, "Model updated", true)
-                    {
-                        tracing::error!("failed to update config: {:?}", e);
-                        println!("⚠ Failed to save config: {}", e);
-                    }
-                }
-                tray::TrayCommand::UpdateThreads(threads) => {
-                    config.model.threads = threads;
-                    if let Err(e) = save_and_update(
-                        &config,
-                        &mut tray_manager,
-                        &format!("Threads updated to {}", threads),
-                        false,
-                    ) {
-                        tracing::error!("failed to update config: {:?}", e);
-                        println!("⚠ Failed to save config: {}", e);
-                    }
-                }
-                tray::TrayCommand::UpdateBeamSize(beam) => {
-                    config.model.beam_size = beam;
-                    if let Err(e) = save_and_update(
-                        &config,
-                        &mut tray_manager,
-                        &format!("Beam size updated to {}", beam),
-                        false,
-                    ) {
-                        tracing::error!("failed to update config: {:?}", e);
-                        println!("⚠ Failed to save config: {}", e);
-                    }
-                }
-                tray::TrayCommand::UpdateLanguage(lang) => {
-                    let msg = lang.as_ref().map_or_else(
-                        || "Language set to auto-detect".to_owned(),
-                        |l| format!("Language updated to {l}"),
-                    );
-                    config.model.language = lang;
-                    if let Err(e) = save_and_update(&config, &mut tray_manager, &msg, false) {
-                        tracing::error!("failed to update config: {:?}", e);
-                        println!("⚠ Failed to save config: {}", e);
-                    }
-                }
-                tray::TrayCommand::UpdateBufferSize(size) => {
-                    config.audio.buffer_size = size;
-                    if let Err(e) = save_and_update(
-                        &config,
-                        &mut tray_manager,
-                        &format!("Buffer size updated to {}", size),
-                        true,
-                    ) {
-                        tracing::error!("failed to update config: {:?}", e);
-                        println!("⚠ Failed to save config: {}", e);
-                    }
-                }
-                tray::TrayCommand::TogglePreload => {
-                    config.model.preload = !config.model.preload;
-                    let msg = format!(
-                        "Preload {}",
-                        if config.model.preload {
-                            "enabled"
-                        } else {
-                            "disabled"
-                        }
-                    );
-                    if let Err(e) = save_and_update(&config, &mut tray_manager, &msg, true) {
-                        tracing::error!("failed to update config: {:?}", e);
-                        println!("⚠ Failed to save config: {}", e);
-                    }
-                }
-                tray::TrayCommand::ToggleTelemetry => {
-                    config.telemetry.enabled = !config.telemetry.enabled;
-                    let msg = format!(
-                        "Telemetry {}",
-                        if config.telemetry.enabled {
-                            "enabled"
-                        } else {
-                            "disabled"
-                        }
-                    );
-                    if let Err(e) = save_and_update(&config, &mut tray_manager, &msg, true) {
-                        tracing::error!("failed to update config: {:?}", e);
-                        println!("⚠ Failed to save config: {}", e);
-                    }
-                }
                 tray::TrayCommand::OpenConfigFile => {
                     if let Ok(path) = config::Config::get_config_path() {
                         #[cfg(target_os = "macos")]
