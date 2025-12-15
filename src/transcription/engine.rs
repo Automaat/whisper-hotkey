@@ -733,4 +733,176 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_model_manager_new_empty_profiles() {
+        let profiles = vec![];
+        let manager = ModelManager::new(&profiles).unwrap();
+        assert_eq!(manager.preloaded.len(), 0);
+        assert_eq!(manager.lazy_configs.len(), 0);
+        assert_eq!(manager.loading.len(), 0);
+    }
+
+    #[test]
+    fn test_model_manager_new_preload_false() {
+        use crate::config::{HotkeyConfig, ModelType, TranscriptionProfile};
+
+        let profiles = vec![TranscriptionProfile {
+            name: Some("test-model".to_owned()),
+            model_type: ModelType::BaseEn,
+            hotkey: HotkeyConfig::default(),
+            preload: false,
+            threads: 4,
+            beam_size: 1,
+            language: Some("en".to_owned()),
+        }];
+
+        let manager = ModelManager::new(&profiles).unwrap();
+        assert_eq!(manager.preloaded.len(), 0);
+        assert_eq!(manager.lazy_configs.len(), 1);
+        assert!(manager.lazy_configs.contains_key("test-model"));
+    }
+
+    #[test]
+    fn test_model_manager_get_or_load_model_not_found() {
+        let profiles = vec![];
+        let mut manager = ModelManager::new(&profiles).unwrap();
+
+        let result = manager.get_or_load("nonexistent");
+        assert!(result.is_err());
+        if let Err(err) = result {
+            assert!(err.to_string().contains("model not found in configuration"));
+        }
+    }
+
+    #[test]
+    fn test_model_manager_is_loaded_false() {
+        use crate::config::{HotkeyConfig, ModelType, TranscriptionProfile};
+
+        let profiles = vec![TranscriptionProfile {
+            name: Some("test-model".to_owned()),
+            model_type: ModelType::BaseEn,
+            hotkey: HotkeyConfig::default(),
+            preload: false,
+            threads: 4,
+            beam_size: 1,
+            language: Some("en".to_owned()),
+        }];
+
+        let manager = ModelManager::new(&profiles).unwrap();
+        assert!(!manager.is_loaded("test-model"));
+    }
+
+    #[test]
+    fn test_model_manager_multiple_profiles_mixed_preload() {
+        use crate::config::{HotkeyConfig, ModelType, TranscriptionProfile};
+
+        let profiles = vec![
+            TranscriptionProfile {
+                name: Some("lazy-model".to_owned()),
+                model_type: ModelType::BaseEn,
+                hotkey: HotkeyConfig {
+                    modifiers: vec!["Command".to_owned()],
+                    key: "A".to_owned(),
+                },
+                preload: false,
+                threads: 4,
+                beam_size: 1,
+                language: Some("en".to_owned()),
+            },
+            TranscriptionProfile {
+                name: Some("another-lazy".to_owned()),
+                model_type: ModelType::Small,
+                hotkey: HotkeyConfig {
+                    modifiers: vec!["Command".to_owned()],
+                    key: "B".to_owned(),
+                },
+                preload: false,
+                threads: 8,
+                beam_size: 5,
+                language: Some("es".to_owned()),
+            },
+        ];
+
+        let manager = ModelManager::new(&profiles).unwrap();
+        assert_eq!(manager.preloaded.len(), 0);
+        assert_eq!(manager.lazy_configs.len(), 2);
+        assert!(manager.lazy_configs.contains_key("lazy-model"));
+        assert!(manager.lazy_configs.contains_key("another-lazy"));
+    }
+
+    #[test]
+    fn test_model_manager_lazy_config_stores_correct_values() {
+        use crate::config::{HotkeyConfig, ModelType, TranscriptionProfile};
+
+        let profiles = vec![TranscriptionProfile {
+            name: Some("custom-model".to_owned()),
+            model_type: ModelType::Small,
+            hotkey: HotkeyConfig::default(),
+            preload: false,
+            threads: 8,
+            beam_size: 5,
+            language: Some("es".to_owned()),
+        }];
+
+        let manager = ModelManager::new(&profiles).unwrap();
+        let config = manager.lazy_configs.get("custom-model").unwrap();
+        assert_eq!(config.threads, 8);
+        assert_eq!(config.beam_size, 5);
+        assert_eq!(config.language, Some("es".to_owned()));
+        assert!(config.model_path.to_string_lossy().contains("small"));
+    }
+
+    #[test]
+    #[ignore = "requires actual model file"]
+    fn test_model_manager_get_or_load_lazy() {
+        use crate::config::{HotkeyConfig, ModelType, TranscriptionProfile};
+
+        let profiles = vec![TranscriptionProfile {
+            name: Some("test-model".to_owned()),
+            model_type: ModelType::BaseEn,
+            hotkey: HotkeyConfig::default(),
+            preload: false,
+            threads: 4,
+            beam_size: 1,
+            language: Some("en".to_owned()),
+        }];
+
+        let mut manager = ModelManager::new(&profiles).unwrap();
+        assert!(!manager.is_loaded("test-model"));
+
+        // First get_or_load should trigger lazy load
+        let engine = manager.get_or_load("test-model").unwrap();
+        assert!(manager.is_loaded("test-model"));
+
+        // Second get_or_load should return cached engine
+        let engine2 = manager.get_or_load("test-model").unwrap();
+        assert!(Arc::ptr_eq(&engine, &engine2));
+    }
+
+    #[test]
+    #[ignore = "requires actual model file"]
+    fn test_model_manager_new_with_preload() {
+        use crate::config::{HotkeyConfig, ModelType, TranscriptionProfile};
+
+        let profiles = vec![TranscriptionProfile {
+            name: Some("preloaded-model".to_owned()),
+            model_type: ModelType::BaseEn,
+            hotkey: HotkeyConfig::default(),
+            preload: true,
+            threads: 4,
+            beam_size: 1,
+            language: Some("en".to_owned()),
+        }];
+
+        let manager = ModelManager::new(&profiles).unwrap();
+        assert_eq!(manager.preloaded.len(), 1);
+        assert_eq!(manager.lazy_configs.len(), 0);
+        assert!(manager.is_loaded("preloaded-model"));
+
+        // get_or_load should return preloaded engine immediately
+        let mut manager_mut = manager;
+        let engine = manager_mut.get_or_load("preloaded-model").unwrap();
+        assert!(Arc::strong_count(&engine) >= 1);
+    }
 }
