@@ -5,18 +5,34 @@ on:
     branches: [main, master]
   pull_request:
     branches: [main, master]
-    paths:
-      - 'src/**/*.rs'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - '.mise.toml'
-      - '.github/workflows/ci.yml'
 
 env:
   RUST_VERSION: "1.91"
 
 jobs:
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      rust: ${{ steps.filter.outputs.rust }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+        id: filter
+        with:
+          filters: |
+            rust:
+              - 'src/**/*.rs'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.mise.toml'
+              - '.github/workflows/ci.yml'
+
   fmt:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     name: Format
     runs-on: ubuntu-latest
     steps:
@@ -30,6 +46,8 @@ jobs:
         run: mise exec -- cargo fmt --all -- --check
 
   clippy:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     name: Clippy
     runs-on: macos-latest
     steps:
@@ -68,6 +86,8 @@ jobs:
           CXXFLAGS: "-march=armv8-a"
 
   test:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     name: Test
     runs-on: macos-latest
     steps:
@@ -121,6 +141,8 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
 
   build:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     name: Build
     runs-on: macos-latest
     steps:
