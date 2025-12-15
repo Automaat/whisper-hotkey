@@ -223,6 +223,8 @@ pub struct ModelManager {
     preloaded: std::collections::HashMap<String, Arc<TranscriptionEngine>>,
     /// Lazy loading configs for non-preloaded models
     lazy_configs: std::collections::HashMap<String, LazyModelConfig>,
+    /// Models currently being loaded (prevents concurrent load race condition)
+    loading: std::collections::HashSet<String>,
 }
 
 /// Configuration for lazy-loading a model
@@ -239,7 +241,7 @@ impl ModelManager {
     /// # Errors
     /// Returns error if any preloaded model fails to load
     pub fn new(profiles: &[crate::config::TranscriptionProfile]) -> Result<Self> {
-        use std::collections::HashMap;
+        use std::collections::{HashMap, HashSet};
 
         let mut preloaded = HashMap::new();
         let mut lazy_configs = HashMap::new();
@@ -276,6 +278,7 @@ impl ModelManager {
         Ok(Self {
             preloaded,
             lazy_configs,
+            loading: HashSet::new(),
         })
     }
 
@@ -284,20 +287,36 @@ impl ModelManager {
     /// # Errors
     /// Returns error if model not found in config or fails to load
     pub fn get_or_load(&mut self, model_name: &str) -> Result<Arc<TranscriptionEngine>> {
-        // Return preloaded engine if exists
+        // Return preloaded engine if exists (fast path)
         if let Some(engine) = self.preloaded.get(model_name) {
             return Ok(Arc::clone(engine));
         }
 
+        // Check if currently being loaded by another thread
+        if self.loading.contains(model_name) {
+            anyhow::bail!(
+                "model is currently being loaded by another thread: {model_name} (retry after load completes)"
+            );
+        }
+
         // Lazy load if config exists
         if let Some(config) = self.lazy_configs.remove(model_name) {
+            // Mark as loading to prevent concurrent loads
+            self.loading.insert(model_name.to_owned());
+
             tracing::info!("lazy loading model: {}", model_name);
-            let engine = Arc::new(TranscriptionEngine::new(
+            let load_result = TranscriptionEngine::new(
                 &config.model_path,
                 config.threads,
                 config.beam_size,
                 config.language,
-            )?);
+            );
+
+            // Remove from loading set before returning (cleanup in all paths)
+            self.loading.remove(model_name);
+
+            // Handle load result
+            let engine = Arc::new(load_result?);
             self.preloaded
                 .insert(model_name.to_owned(), Arc::clone(&engine));
             return Ok(engine);

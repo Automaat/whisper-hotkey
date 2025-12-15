@@ -142,9 +142,12 @@ async fn main() -> Result<()> {
     tracing::info!(profiles = config.profiles.len(), "all profiles registered");
 
     // Menubar tray icon (use first profile's state for icon updates)
+    if config.profiles.is_empty() {
+        anyhow::bail!("no profiles configured (at least one profile required)");
+    }
     let app_state = multi_hotkey_manager
         .profile_state(config.profiles[0].name())
-        .context("failed to get state for first profile")?;
+        .context("failed to get state for first profile (profile may be misconfigured)")?;
     let mut tray_manager =
         tray::TrayManager::new(&config, app_state).context("failed to create tray icon")?;
     println!("✓ Menubar icon created");

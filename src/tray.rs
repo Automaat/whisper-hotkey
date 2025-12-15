@@ -790,6 +790,7 @@ mod tests {
         };
         Config {
             profiles: vec![crate::config::TranscriptionProfile {
+                name: None,
                 model_type: ModelType::Small,
                 hotkey: HotkeyConfig {
                     modifiers: vec!["Control".to_owned(), "Option".to_owned()],
@@ -948,6 +949,7 @@ mod tests {
         };
         Config {
             profiles: vec![crate::config::TranscriptionProfile {
+                name: None,
                 model_type: ModelType::Base,
                 hotkey: HotkeyConfig {
                     modifiers: vec!["Command".to_owned(), "Shift".to_owned()],

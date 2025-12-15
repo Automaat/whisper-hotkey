@@ -202,10 +202,22 @@ impl HotkeyManager {
 
     /// Process transcription and text insertion in background thread
     fn process_transcription(&self, samples: Vec<f32>) {
-        // Try lazy loading if needed
-        let engine = self.transcription.as_ref().map_or_else(
-            || {
-                if let Some((model_mgr, model_name)) = &self.lazy_load_config {
+        let engine = self.transcription.clone();
+        let lazy_load_config = self.lazy_load_config.clone();
+        let state_arc = Arc::clone(&self.state);
+        let aliases = Arc::clone(&self.aliases);
+
+        // Set state to Processing if lazy loading needed (loading + transcription)
+        if engine.is_none() && lazy_load_config.is_some() {
+            *state_arc
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = AppState::Processing;
+        }
+
+        std::thread::spawn(move || {
+            // Try lazy loading if needed (in background thread)
+            let engine = engine.or_else(|| {
+                if let Some((model_mgr, model_name)) = &lazy_load_config {
                     info!("🔄 Lazy loading model: {}", model_name);
                     let result = {
                         let mut mgr = model_mgr
@@ -226,15 +238,9 @@ impl HotkeyManager {
                 } else {
                     None
                 }
-            },
-            |engine| Some(Arc::clone(engine)),
-        );
+            });
 
-        if let Some(engine) = engine {
-            let state_arc = Arc::clone(&self.state);
-            let aliases = Arc::clone(&self.aliases);
-
-            std::thread::spawn(move || {
+            if let Some(engine) = engine {
                 match engine.transcribe(&samples) {
                     Ok(text) => {
                         let text_preview: String = text.chars().take(50).collect();
@@ -275,21 +281,16 @@ impl HotkeyManager {
                         );
                     }
                 }
+            } else {
+                warn!("⚠️  Transcription engine not available");
+            }
 
-                // Set state to Idle after processing (always recover)
-                *state_arc
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner) = AppState::Idle;
-                info!("✓ Ready for next recording");
-            });
-        } else {
-            warn!("⚠️  Transcription engine not available");
-            *self
-                .state
+            // Set state to Idle after processing (always recover)
+            *state_arc
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner) = AppState::Idle;
-            info!("✓ Ready for next recording (transcription disabled)");
-        }
+            info!("✓ Ready for next recording");
+        });
     }
 
     /// Process hotkey events from global event channel
@@ -302,6 +303,12 @@ impl HotkeyManager {
             global_hotkey::HotKeyState::Pressed => self.on_press(),
             global_hotkey::HotKeyState::Released => self.on_release(),
         }
+    }
+
+    /// Get hotkey ID for this manager
+    #[must_use]
+    pub fn hotkey_id(&self) -> u32 {
+        self.hotkey.id()
     }
 
     fn parse_modifiers(modifiers: &[String]) -> Result<Modifiers> {
@@ -394,15 +401,14 @@ impl MultiHotkeyManager {
 
             // Get engine if preloaded, None if lazy
             let (engine, lazy_config) = if profile.preload {
-                let engine = {
+                let arc_engine = {
                     let mut mgr = model_manager
                         .lock()
                         .unwrap_or_else(std::sync::PoisonError::into_inner);
                     mgr.get_or_load(&model_name)
                         .with_context(|| format!("failed to get preloaded model: {model_name}"))?
-                        .clone()
                 };
-                (Some(engine), None)
+                (Some(Arc::clone(&arc_engine)), None)
             } else {
                 // For lazy loading, pass model manager + model name
                 (None, Some((Arc::clone(&model_manager), model_name.clone())))
@@ -436,10 +442,13 @@ impl MultiHotkeyManager {
         })
     }
 
-    /// Handle hotkey event by dispatching to all managers
+    /// Handle hotkey event by dispatching only to the matching manager
     pub fn handle_event(&self, event: GlobalHotKeyEvent) {
         for (_, mgr) in &self.managers {
-            mgr.handle_event(event);
+            if event.id == mgr.hotkey_id() {
+                mgr.handle_event(event);
+                break; // Only one manager handles a given event
+            }
         }
     }
 

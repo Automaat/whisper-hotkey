@@ -174,7 +174,8 @@ fn is_default_profiles(val: &[TranscriptionProfile]) -> bool {
         return false;
     }
     let profile = &val[0];
-    profile.model_type == ModelType::BaseEn
+    profile.name.is_none()
+        && profile.model_type == ModelType::BaseEn
         && is_default_hotkey(&profile.hotkey)
         && profile.preload
         && profile.threads == 4
@@ -185,6 +186,9 @@ fn is_default_profiles(val: &[TranscriptionProfile]) -> bool {
 /// Transcription profile combining hotkey and model configuration
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct TranscriptionProfile {
+    /// Optional explicit profile name (auto-generated if multiple profiles share same `model_type`)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     /// Model type (e.g., "base.en", "small", "tiny")
     pub model_type: ModelType,
     /// Hotkey configuration (inlined)
@@ -205,10 +209,12 @@ pub struct TranscriptionProfile {
 }
 
 impl TranscriptionProfile {
-    /// Get profile name derived from model type
+    /// Get profile name (explicit name or derived from model type)
     #[must_use]
-    pub const fn name(&self) -> &str {
-        self.model_type.as_str()
+    pub fn name(&self) -> &str {
+        self.name
+            .as_deref()
+            .unwrap_or_else(|| self.model_type.as_str())
     }
 
     /// Get model path for this profile
@@ -344,6 +350,7 @@ fn default_language() -> Option<String> {
 
 fn default_profiles() -> Vec<TranscriptionProfile> {
     vec![TranscriptionProfile {
+        name: None,
         model_type: ModelType::BaseEn,
         hotkey: HotkeyConfig::default(),
         preload: default_preload(),
@@ -567,8 +574,9 @@ impl Config {
         let mut config: Self = toml::from_str(&contents).context("failed to parse config TOML")?;
 
         // Migrate from old [hotkey]/[model] format to [[profiles]]
-        let needs_migration = !contents.contains("[[profiles]]")
-            && (contents.contains("[hotkey]") || contents.contains("[model]"));
+        // Check if profiles is empty/default AND old sections exist (non-default values)
+        let needs_migration = (config.profiles.is_empty() || is_default_profiles(&config.profiles))
+            && (!is_default_hotkey(&config.hotkey) || !is_default_model(&config.model));
 
         if needs_migration {
             tracing::info!("migrating config from old [hotkey]/[model] format to [[profiles]]");
@@ -587,6 +595,17 @@ impl Config {
         if had_old_fields {
             tracing::info!("migrating config: removing deprecated 'name' and 'path' fields");
             config.save().context("failed to save migrated config")?;
+        }
+
+        // Ensure unique profile names (auto-generate for duplicates)
+        config.ensure_unique_names();
+
+        // Ensure at least one profile exists
+        if config.profiles.is_empty() {
+            anyhow::bail!(
+                "config must contain at least one profile - add a [[profiles]] section to {}",
+                Self::config_path()?.display()
+            );
         }
 
         // Validate hotkey conflicts
@@ -697,6 +716,7 @@ impl Config {
 
         // Create single profile from old hotkey + model
         self.profiles = vec![TranscriptionProfile {
+            name: None,
             model_type: self.model.model_type,
             hotkey: self.hotkey.clone(),
             preload: self.model.preload,
@@ -704,6 +724,32 @@ impl Config {
             beam_size: self.model.beam_size,
             language: self.model.language.clone(),
         }];
+    }
+
+    /// Ensure unique profile names by auto-generating suffixes for duplicates
+    fn ensure_unique_names(&mut self) {
+        use std::collections::HashMap;
+
+        // Count occurrences of each derived name
+        let mut name_counts: HashMap<String, usize> = HashMap::new();
+        for profile in &self.profiles {
+            let derived_name = profile.model_type.as_str().to_owned();
+            *name_counts.entry(derived_name).or_insert(0) += 1;
+        }
+
+        // Auto-generate unique names for duplicates
+        let mut name_counters: HashMap<String, usize> = HashMap::new();
+        for profile in &mut self.profiles {
+            if profile.name.is_none() {
+                let derived_name = profile.model_type.as_str().to_owned();
+                if *name_counts.get(&derived_name).unwrap_or(&0) > 1 {
+                    // Multiple profiles with same model_type, generate unique name
+                    let counter = name_counters.entry(derived_name.clone()).or_insert(0);
+                    *counter += 1;
+                    profile.name = Some(format!("{derived_name}-{counter}"));
+                }
+            }
+        }
     }
 
     /// Validate no duplicate hotkeys across profiles
@@ -715,7 +761,10 @@ impl Config {
 
         let mut seen = HashSet::new();
         for profile in &self.profiles {
-            let hotkey_sig = format!("{:?}+{}", profile.hotkey.modifiers, profile.hotkey.key);
+            // Sort modifiers for consistent signature (order-independent)
+            let mut sorted_mods = profile.hotkey.modifiers.clone();
+            sorted_mods.sort();
+            let hotkey_sig = format!("{:?}+{}", sorted_mods, profile.hotkey.key);
 
             if !seen.insert(hotkey_sig.clone()) {
                 anyhow::bail!(
@@ -724,7 +773,9 @@ impl Config {
                     self.profiles
                         .iter()
                         .filter(|p| {
-                            format!("{:?}+{}", p.hotkey.modifiers, p.hotkey.key) == hotkey_sig
+                            let mut sorted_mods = p.hotkey.modifiers.clone();
+                            sorted_mods.sort();
+                            format!("{:?}+{}", sorted_mods, p.hotkey.key) == hotkey_sig
                         })
                         .map(TranscriptionProfile::name)
                         .collect::<Vec<_>>()
