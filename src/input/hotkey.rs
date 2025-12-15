@@ -28,7 +28,7 @@ type LazyLoadConfig = (Arc<Mutex<ModelManager>>, String);
 
 /// Global hotkey manager with state tracking
 pub struct HotkeyManager {
-    manager: GlobalHotKeyManager,
+    manager: Arc<GlobalHotKeyManager>,
     hotkey: HotKey,
     state: Arc<Mutex<AppState>>,
     audio: Arc<Mutex<AudioCapture>>,
@@ -40,11 +40,12 @@ pub struct HotkeyManager {
 }
 
 impl HotkeyManager {
-    /// Create and register global hotkey from config
+    /// Create and register global hotkey from config using shared manager
     ///
     /// # Errors
-    /// Returns error if hotkey manager creation fails, unknown modifiers/keys, or registration fails
+    /// Returns error if unknown modifiers/keys or registration fails
     pub fn new(
+        manager: Arc<GlobalHotKeyManager>,
         config: &HotkeyConfig,
         audio: Arc<Mutex<AudioCapture>>,
         transcription: Option<Arc<TranscriptionEngine>>,
@@ -52,8 +53,6 @@ impl HotkeyManager {
         aliases: Arc<AliasesConfig>,
         lazy_load_config: Option<LazyLoadConfig>,
     ) -> Result<Self> {
-        let manager = GlobalHotKeyManager::new().context("failed to create hotkey manager")?;
-
         let modifiers = Self::parse_modifiers(&config.modifiers)?;
         let code = Self::parse_key(&config.key)?;
 
@@ -77,6 +76,7 @@ impl HotkeyManager {
     }
 
     /// Get shared state for external monitoring (e.g., UI updates)
+    #[must_use]
     pub fn state_shared(&self) -> Arc<Mutex<AppState>> {
         Arc::clone(&self.state)
     }
@@ -379,6 +379,43 @@ pub struct MultiHotkeyManager {
 }
 
 impl MultiHotkeyManager {
+    /// Pump macOS `NSApplication` event loop to ensure system is responsive
+    /// Required for global hotkey registration to complete without timeout
+    #[cfg(target_os = "macos")]
+    #[allow(unsafe_code)] // Required for NSApplication event loop FFI
+    fn pump_event_loop() {
+        use cocoa::appkit::{NSApp, NSApplication};
+        use cocoa::base::nil;
+        use cocoa::foundation::{NSAutoreleasePool, NSDate};
+
+        unsafe {
+            let pool = NSAutoreleasePool::new(nil);
+            let app = NSApp();
+            let distant_past = NSDate::distantPast(nil);
+
+            // Process all pending events
+            loop {
+                let event = app.nextEventMatchingMask_untilDate_inMode_dequeue_(
+                    u64::MAX,
+                    distant_past,
+                    cocoa::foundation::NSDefaultRunLoopMode,
+                    true,
+                );
+                if event == nil {
+                    break;
+                }
+                app.sendEvent_(event);
+            }
+
+            pool.drain();
+        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    fn pump_event_loop() {
+        // No-op on non-macOS platforms
+    }
+
     /// Create multi-hotkey manager from profiles
     ///
     /// # Errors
@@ -389,6 +426,12 @@ impl MultiHotkeyManager {
         recording_enabled: bool,
         aliases: &Arc<AliasesConfig>,
     ) -> Result<Self> {
+        // Create single shared GlobalHotKeyManager for all profiles
+        // Pump event loop first to ensure NSApplication is ready
+        Self::pump_event_loop();
+        let global_manager =
+            Arc::new(GlobalHotKeyManager::new().context("failed to create global hotkey manager")?);
+
         // Create model manager (preloads where profile.preload=true)
         let model_manager = Arc::new(Mutex::new(
             ModelManager::new(profiles).context("failed to initialize model manager")?,
@@ -414,8 +457,9 @@ impl MultiHotkeyManager {
                 (None, Some((Arc::clone(&model_manager), model_name.clone())))
             };
 
-            // Create hotkey manager for this profile
+            // Create hotkey manager for this profile with shared global manager
             let mgr = HotkeyManager::new(
+                Arc::clone(&global_manager),
                 &profile.hotkey,
                 Arc::clone(&audio),
                 engine,
