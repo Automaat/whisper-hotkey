@@ -20,6 +20,10 @@ run = "cargo build"
 description = "Build release binary"
 run = "cargo build --release"
 
+[tasks.dev]
+description = "Run app in release mode"
+run = "mise exec -- cargo run --release"
+
 [tasks.test]
 description = "Run tests"
 run = "cargo test"
