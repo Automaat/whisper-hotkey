@@ -169,9 +169,64 @@ fn is_default_aliases(val: &AliasesConfig) -> bool {
     val.enabled && val.threshold == 0.8 && val.entries.is_empty()
 }
 
+fn is_default_profiles(val: &[TranscriptionProfile]) -> bool {
+    if val.len() != 1 {
+        return false;
+    }
+    let profile = &val[0];
+    profile.model_type == ModelType::BaseEn
+        && is_default_hotkey(&profile.hotkey)
+        && profile.preload
+        && profile.threads == 4
+        && profile.beam_size == 1
+        && profile.language.as_deref() == Some("en")
+}
+
+/// Transcription profile combining hotkey and model configuration
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct TranscriptionProfile {
+    /// Model type (e.g., "base.en", "small", "tiny")
+    pub model_type: ModelType,
+    /// Hotkey configuration (inlined)
+    #[serde(flatten)]
+    pub hotkey: HotkeyConfig,
+    /// Preload model at startup
+    #[serde(default = "default_preload")]
+    pub preload: bool,
+    /// Number of CPU threads for inference
+    #[serde(default = "default_threads")]
+    pub threads: usize,
+    /// Beam search width (higher = slower but more accurate)
+    #[serde(default = "default_beam_size")]
+    pub beam_size: usize,
+    /// Language code (None = auto-detect)
+    #[serde(default = "default_language")]
+    pub language: Option<String>,
+}
+
+impl TranscriptionProfile {
+    /// Get profile name derived from model type
+    #[must_use]
+    pub const fn name(&self) -> &str {
+        self.model_type.as_str()
+    }
+
+    /// Get model path for this profile
+    #[must_use]
+    pub fn model_path(&self) -> String {
+        self.model_type.model_path()
+    }
+}
+
 /// Application configuration
-#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Config {
+    /// Transcription profiles (each with hotkey + model config)
+    #[serde(
+        default = "default_profiles",
+        skip_serializing_if = "is_default_profiles"
+    )]
+    pub profiles: Vec<TranscriptionProfile>,
     /// Hotkey configuration
     #[serde(default, skip_serializing_if = "is_default_hotkey")]
     #[allow(dead_code)] // Used in Phase 2+
@@ -285,6 +340,17 @@ const fn default_beam_size() -> usize {
 #[allow(clippy::unnecessary_wraps)]
 fn default_language() -> Option<String> {
     Some("en".to_owned()) // English by default (skips auto-detect overhead)
+}
+
+fn default_profiles() -> Vec<TranscriptionProfile> {
+    vec![TranscriptionProfile {
+        model_type: ModelType::BaseEn,
+        hotkey: HotkeyConfig::default(),
+        preload: default_preload(),
+        threads: default_threads(),
+        beam_size: default_beam_size(),
+        language: default_language(),
+    }]
 }
 
 impl<'de> Deserialize<'de> for ModelConfig {
@@ -436,6 +502,20 @@ impl Default for AliasesConfig {
     }
 }
 
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            profiles: default_profiles(),
+            hotkey: HotkeyConfig::default(),
+            audio: AudioConfig::default(),
+            model: ModelConfig::default(),
+            telemetry: TelemetryConfig::default(),
+            recording: RecordingConfig::default(),
+            aliases: AliasesConfig::default(),
+        }
+    }
+}
+
 impl Config {
     /// Load config from ~/.whisper-hotkey/config.toml
     ///
@@ -484,7 +564,17 @@ impl Config {
             contents = fs::read_to_string(&config_path).context("failed to read config file")?;
         }
 
-        let config: Self = toml::from_str(&contents).context("failed to parse config TOML")?;
+        let mut config: Self = toml::from_str(&contents).context("failed to parse config TOML")?;
+
+        // Migrate from old [hotkey]/[model] format to [[profiles]]
+        let needs_migration = !contents.contains("[[profiles]]")
+            && (contents.contains("[hotkey]") || contents.contains("[model]"));
+
+        if needs_migration {
+            tracing::info!("migrating config from old [hotkey]/[model] format to [[profiles]]");
+            config.migrate_to_profiles();
+            config.save().context("failed to save migrated config")?;
+        }
 
         // Check if [model] section had old fields (name/path) and save migrated version
         let had_old_fields = contents
@@ -498,6 +588,9 @@ impl Config {
             tracing::info!("migrating config: removing deprecated 'name' and 'path' fields");
             config.save().context("failed to save migrated config")?;
         }
+
+        // Validate hotkey conflicts
+        config.validate_hotkeys()?;
 
         Ok(config)
     }
@@ -592,6 +685,55 @@ impl Config {
         } else {
             Ok(PathBuf::from(path))
         }
+    }
+
+    /// Migrate from old [hotkey]/[model] format to [[profiles]]
+    /// Converts single hotkey + model config into a single profile
+    fn migrate_to_profiles(&mut self) {
+        // Only migrate if profiles is empty or using defaults
+        if !self.profiles.is_empty() && !is_default_profiles(&self.profiles) {
+            return;
+        }
+
+        // Create single profile from old hotkey + model
+        self.profiles = vec![TranscriptionProfile {
+            model_type: self.model.model_type,
+            hotkey: self.hotkey.clone(),
+            preload: self.model.preload,
+            threads: self.model.threads,
+            beam_size: self.model.beam_size,
+            language: self.model.language.clone(),
+        }];
+    }
+
+    /// Validate no duplicate hotkeys across profiles
+    ///
+    /// # Errors
+    /// Returns error if duplicate hotkeys are found
+    fn validate_hotkeys(&self) -> Result<()> {
+        use std::collections::HashSet;
+
+        let mut seen = HashSet::new();
+        for profile in &self.profiles {
+            let hotkey_sig = format!("{:?}+{}", profile.hotkey.modifiers, profile.hotkey.key);
+
+            if !seen.insert(hotkey_sig.clone()) {
+                anyhow::bail!(
+                    "duplicate hotkey detected: {} (profiles: {})",
+                    hotkey_sig,
+                    self.profiles
+                        .iter()
+                        .filter(|p| {
+                            format!("{:?}+{}", p.hotkey.modifiers, p.hotkey.key) == hotkey_sig
+                        })
+                        .map(TranscriptionProfile::name)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -920,6 +1062,7 @@ log_path = "/test/log.txt"
 
         // Test with non-default values - should serialize them
         let config = Config {
+            profiles: default_profiles(),
             hotkey: HotkeyConfig {
                 modifiers: vec!["Command".to_owned()],
                 key: "V".to_owned(),
@@ -957,6 +1100,7 @@ log_path = "/test/log.txt"
     #[test]
     fn test_config_roundtrip() {
         let original = Config {
+            profiles: default_profiles(),
             hotkey: HotkeyConfig {
                 modifiers: vec!["Command".to_owned()],
                 key: "V".to_owned(),
@@ -1241,6 +1385,7 @@ log_path = "/custom/log.txt"
         env::set_var("HOME", test_dir.to_str().unwrap());
 
         let config = Config {
+            profiles: default_profiles(),
             hotkey: HotkeyConfig {
                 modifiers: vec!["Command".to_owned()],
                 key: "T".to_owned(),

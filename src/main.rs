@@ -79,55 +79,43 @@ async fn main() -> Result<()> {
     permissions::request_all_permissions().context("permission check failed")?;
     println!("✓ Permissions OK");
 
-    // Phase 4: Whisper model setup
-    let model_path = config::Config::expand_path(&config.model.model_type.model_path())
-        .context("failed to expand model path")?;
-    let downloaded =
-        transcription::ensure_model_downloaded(config.model.model_type.model_name(), &model_path)
-            .context("failed to download/verify Whisper model")?;
-    if downloaded {
-        println!("✓ Model downloaded to {}", model_path.display());
-        tracing::info!("whisper model downloaded: {}", model_path.display());
-    } else {
-        println!("✓ Model found at {}", model_path.display());
-        tracing::info!("whisper model found: {}", model_path.display());
-    }
-
-    // Preload model if configured
-    let transcription_engine = if config.model.preload {
-        println!("Loading Whisper model (this may take a few seconds)...");
-        println!(
-            "  Optimization: {} threads, beam_size={}",
-            config.model.threads, config.model.beam_size
-        );
-        if let Some(ref lang) = config.model.language {
-            println!("  Language: {} (hint)", lang);
+    // Phase 4: Whisper model setup - Download models for all profiles
+    println!(
+        "Checking models for {} profile(s)...",
+        config.profiles.len()
+    );
+    for profile in &config.profiles {
+        let model_path = config::Config::expand_path(&profile.model_path())
+            .context("failed to expand model path")?;
+        let downloaded =
+            transcription::ensure_model_downloaded(profile.model_type.model_name(), &model_path)
+                .with_context(|| {
+                    format!(
+                        "failed to download/verify model for profile {}",
+                        profile.name()
+                    )
+                })?;
+        if downloaded {
+            println!(
+                "  ✓ {} downloaded to {}",
+                profile.name(),
+                model_path.display()
+            );
+            tracing::info!(
+                profile = %profile.name(),
+                path = %model_path.display(),
+                "model downloaded"
+            );
         } else {
-            println!("  Language: auto-detect");
+            println!("  ✓ {} found at {}", profile.name(), model_path.display());
+            tracing::info!(
+                profile = %profile.name(),
+                path = %model_path.display(),
+                "model found"
+            );
         }
-        match transcription::TranscriptionEngine::new(
-            &model_path,
-            config.model.threads,
-            config.model.beam_size,
-            config.model.language.clone(),
-        ) {
-            Ok(engine) => {
-                println!("✓ Whisper model loaded and ready");
-                tracing::info!("whisper model preloaded successfully");
-                Some(Arc::new(engine))
-            }
-            Err(e) => {
-                tracing::error!("failed to preload whisper model: {:?}", e);
-                println!("⚠ Model preload failed: {}", e);
-                println!("  Continuing without transcription (hotkey will still work)");
-                None
-            }
-        }
-    } else {
-        println!("⚠ Model preload disabled (transcription will be slower)");
-        tracing::info!("model preload disabled in config");
-        None
-    };
+    }
+    println!("✓ All models ready");
 
     // Phase 3: Audio recording
     let audio_capture =
@@ -143,26 +131,20 @@ async fn main() -> Result<()> {
 
     // Phase 2: Global hotkey (with Phase 5 transcription integration)
     // Clone necessary: config.aliases needed in Arc, but config borrowed later by tray manager
-    let hotkey_manager = input::hotkey::HotkeyManager::new(
-        &config.hotkey,
+    let multi_hotkey_manager = input::hotkey::MultiHotkeyManager::new(
+        &config.profiles,
         Arc::clone(&audio_capture),
-        transcription_engine.clone(),
         config.recording.enabled,
-        Arc::new(config.aliases.clone()),
+        &Arc::new(config.aliases.clone()),
     )
-    .context("failed to register global hotkey")?;
-    println!(
-        "✓ Hotkey registered: {:?} + {}",
-        config.hotkey.modifiers, config.hotkey.key
-    );
-    tracing::info!(
-        "hotkey registered: {:?} + {}",
-        config.hotkey.modifiers,
-        config.hotkey.key
-    );
+    .context("failed to register global hotkeys")?;
+    println!("✓ {} profile(s) registered", config.profiles.len());
+    tracing::info!(profiles = config.profiles.len(), "all profiles registered");
 
-    // Menubar tray icon
-    let app_state = hotkey_manager.state_shared();
+    // Menubar tray icon (use first profile's state for icon updates)
+    let app_state = multi_hotkey_manager
+        .profile_state(config.profiles[0].name())
+        .context("failed to get state for first profile")?;
     let mut tray_manager =
         tray::TrayManager::new(&config, app_state).context("failed to create tray icon")?;
     println!("✓ Menubar icon created");
@@ -171,15 +153,24 @@ async fn main() -> Result<()> {
     // Phase 6: Integration & Polish - Main event loop
     tracing::info!("all components initialized successfully");
     tracing::info!("event loop starting (press Ctrl+C to exit)");
-    println!("\nWhisper Hotkey is running. Check menubar for config options.");
-    if transcription_engine.is_some() {
-        println!("✓ Full pipeline ready: hotkey → audio → transcription → text insertion");
-        tracing::info!("full pipeline active");
-    } else {
-        println!("⚠ Transcription disabled (preload = false in config or model load failed)");
-        println!("  Audio recording will work, but no transcription will occur");
-        tracing::warn!("transcription disabled, running in degraded mode");
+    println!(
+        "\nWhisper Hotkey is running with {} profile(s). Check menubar for config options.",
+        config.profiles.len()
+    );
+    for profile in &config.profiles {
+        println!(
+            "  • {}: {:?}+{} {}",
+            profile.name(),
+            profile.hotkey.modifiers,
+            profile.hotkey.key,
+            if profile.preload {
+                "(preloaded)"
+            } else {
+                "(lazy load)"
+            }
+        );
     }
+    println!("✓ Full pipeline ready: hotkey → audio → transcription → text insertion");
     println!("Press Ctrl+C to exit or use menubar Quit option.\n");
 
     let receiver = GlobalHotKeyEvent::receiver();
@@ -271,7 +262,7 @@ async fn main() -> Result<()> {
         // Poll for hotkey events
         if let Ok(event) = receiver.try_recv() {
             tracing::debug!("hotkey event received: {:?}", event);
-            hotkey_manager.handle_event(event);
+            multi_hotkey_manager.handle_event(event);
         }
 
         // Update tray menu/icon based on app state

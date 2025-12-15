@@ -10,7 +10,7 @@ use crate::alias;
 use crate::audio::AudioCapture;
 use crate::config::{AliasesConfig, HotkeyConfig};
 use crate::input::cgevent;
-use crate::transcription::TranscriptionEngine;
+use crate::transcription::{ModelManager, TranscriptionEngine};
 
 /// Application state machine
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -23,6 +23,9 @@ pub enum AppState {
     Processing,
 }
 
+/// Lazy loading configuration (model manager + model name)
+type LazyLoadConfig = (Arc<Mutex<ModelManager>>, String);
+
 /// Global hotkey manager with state tracking
 pub struct HotkeyManager {
     manager: GlobalHotKeyManager,
@@ -32,6 +35,8 @@ pub struct HotkeyManager {
     transcription: Option<Arc<TranscriptionEngine>>,
     recording_enabled: bool,
     aliases: Arc<AliasesConfig>,
+    /// For lazy loading: model manager + model name
+    lazy_load_config: Option<LazyLoadConfig>,
 }
 
 impl HotkeyManager {
@@ -45,6 +50,7 @@ impl HotkeyManager {
         transcription: Option<Arc<TranscriptionEngine>>,
         recording_enabled: bool,
         aliases: Arc<AliasesConfig>,
+        lazy_load_config: Option<LazyLoadConfig>,
     ) -> Result<Self> {
         let manager = GlobalHotKeyManager::new().context("failed to create hotkey manager")?;
 
@@ -66,6 +72,7 @@ impl HotkeyManager {
             transcription,
             recording_enabled,
             aliases,
+            lazy_load_config,
         })
     }
 
@@ -195,8 +202,35 @@ impl HotkeyManager {
 
     /// Process transcription and text insertion in background thread
     fn process_transcription(&self, samples: Vec<f32>) {
-        if let Some(engine) = &self.transcription {
-            let engine = Arc::clone(engine);
+        // Try lazy loading if needed
+        let engine = self.transcription.as_ref().map_or_else(
+            || {
+                if let Some((model_mgr, model_name)) = &self.lazy_load_config {
+                    info!("🔄 Lazy loading model: {}", model_name);
+                    let result = {
+                        let mut mgr = model_mgr
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner);
+                        mgr.get_or_load(model_name)
+                    };
+                    match result {
+                        Ok(engine) => {
+                            info!("✅ Model loaded: {}", model_name);
+                            Some(engine)
+                        }
+                        Err(e) => {
+                            warn!(error = %e, model = %model_name, "❌ Failed to lazy load model");
+                            None
+                        }
+                    }
+                } else {
+                    None
+                }
+            },
+            |engine| Some(Arc::clone(engine)),
+        );
+
+        if let Some(engine) = engine {
             let state_arc = Arc::clone(&self.state);
             let aliases = Arc::clone(&self.aliases);
 
@@ -322,6 +356,100 @@ impl Drop for HotkeyManager {
         if let Err(e) = self.manager.unregister(self.hotkey) {
             tracing::error!("failed to unregister hotkey: {}", e);
         }
+    }
+}
+
+/// Multi-profile hotkey manager supporting multiple models and hotkeys
+pub struct MultiHotkeyManager {
+    /// Individual hotkey managers (one per profile)
+    managers: Vec<(String, HotkeyManager)>,
+    /// Shared audio capture
+    #[allow(dead_code)] // Held for lifetime management
+    audio: Arc<Mutex<AudioCapture>>,
+    /// Model manager for lazy loading
+    #[allow(dead_code)] // Held for lifetime management
+    model_manager: Arc<Mutex<ModelManager>>,
+}
+
+impl MultiHotkeyManager {
+    /// Create multi-hotkey manager from profiles
+    ///
+    /// # Errors
+    /// Returns error if hotkey registration fails or model preloading fails
+    pub fn new(
+        profiles: &[crate::config::TranscriptionProfile],
+        audio: Arc<Mutex<AudioCapture>>,
+        recording_enabled: bool,
+        aliases: &Arc<AliasesConfig>,
+    ) -> Result<Self> {
+        // Create model manager (preloads where profile.preload=true)
+        let model_manager = Arc::new(Mutex::new(
+            ModelManager::new(profiles).context("failed to initialize model manager")?,
+        ));
+
+        let mut managers = Vec::new();
+
+        for profile in profiles {
+            let model_name = profile.name().to_owned();
+
+            // Get engine if preloaded, None if lazy
+            let (engine, lazy_config) = if profile.preload {
+                let engine = {
+                    let mut mgr = model_manager
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    mgr.get_or_load(&model_name)
+                        .with_context(|| format!("failed to get preloaded model: {model_name}"))?
+                        .clone()
+                };
+                (Some(engine), None)
+            } else {
+                // For lazy loading, pass model manager + model name
+                (None, Some((Arc::clone(&model_manager), model_name.clone())))
+            };
+
+            // Create hotkey manager for this profile
+            let mgr = HotkeyManager::new(
+                &profile.hotkey,
+                Arc::clone(&audio),
+                engine,
+                recording_enabled,
+                Arc::clone(aliases),
+                lazy_config,
+            )
+            .with_context(|| format!("failed to register hotkey for profile: {model_name}"))?;
+
+            info!(
+                profile = %model_name,
+                hotkey = format!("{:?}+{}", profile.hotkey.modifiers, profile.hotkey.key),
+                preloaded = profile.preload,
+                "registered profile"
+            );
+
+            managers.push((model_name, mgr));
+        }
+
+        Ok(Self {
+            managers,
+            audio,
+            model_manager,
+        })
+    }
+
+    /// Handle hotkey event by dispatching to all managers
+    pub fn handle_event(&self, event: GlobalHotKeyEvent) {
+        for (_, mgr) in &self.managers {
+            mgr.handle_event(event);
+        }
+    }
+
+    /// Get state for specific profile
+    #[must_use]
+    pub fn profile_state(&self, profile_name: &str) -> Option<Arc<Mutex<AppState>>> {
+        self.managers
+            .iter()
+            .find(|(name, _)| name == profile_name)
+            .map(|(_, mgr)| mgr.state_shared())
     }
 }
 

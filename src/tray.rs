@@ -789,6 +789,17 @@ mod tests {
             AliasesConfig, AudioConfig, HotkeyConfig, ModelConfig, RecordingConfig, TelemetryConfig,
         };
         Config {
+            profiles: vec![crate::config::TranscriptionProfile {
+                model_type: ModelType::Small,
+                hotkey: HotkeyConfig {
+                    modifiers: vec!["Control".to_owned(), "Option".to_owned()],
+                    key: "Z".to_owned(),
+                },
+                preload: true,
+                threads: 4,
+                beam_size: 5,
+                language: None,
+            }],
             hotkey: HotkeyConfig {
                 modifiers: vec!["Control".to_owned(), "Option".to_owned()],
                 key: "Z".to_owned(),
@@ -936,6 +947,17 @@ mod tests {
             AliasesConfig, AudioConfig, HotkeyConfig, ModelConfig, RecordingConfig, TelemetryConfig,
         };
         Config {
+            profiles: vec![crate::config::TranscriptionProfile {
+                model_type: ModelType::Base,
+                hotkey: HotkeyConfig {
+                    modifiers: vec!["Command".to_owned(), "Shift".to_owned()],
+                    key: "V".to_owned(),
+                },
+                preload: false,
+                threads: 4,
+                beam_size: 5,
+                language: None,
+            }],
             hotkey: HotkeyConfig {
                 modifiers: vec!["Command".to_owned(), "Shift".to_owned()],
                 key: "V".to_owned(),
