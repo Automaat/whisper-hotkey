@@ -8,6 +8,13 @@ macOS background app for system-wide voice-to-text via hotkey using local Whispe
 
 Hold a hotkey, speak, release → text inserted at cursor. Privacy-first (100% local, no cloud).
 
+**Key Features:**
+- 🎯 **Multi-profile support** - Different models per hotkey (e.g., fast for notes, accurate for emails)
+- 🔄 **Smart aliases** - Fuzzy text replacement (e.g., "my email" → "user@example.com")
+- 📊 **Menubar tray** - Visual feedback (idle/recording/processing) and quick config access
+- 🔒 **100% local** - No cloud, no internet (except initial model download)
+- ⚡ **Fast** - <50ms audio start, ~2s transcription (10s audio)
+
 ---
 
 ## Quick Start
@@ -162,26 +169,54 @@ Press Ctrl+C to exit.
 Edit `~/.whisper-hotkey/config.toml`:
 
 ```toml
-[hotkey]
-modifiers = ["Control", "Option"]  # or ["Command", "Shift"]
-key = "Z"                           # any letter A-Z
+# Multi-profile support - define multiple hotkeys with different models
+[[profiles]]
+name = "Fast"                       # optional profile name
+model_type = "small"                # tiny, base, small, medium, large, tiny.en, base.en, small.en, medium.en
+[profiles.hotkey]
+modifiers = ["Control", "Option"]
+key = "Z"
+preload = true                      # load on startup (recommended)
+threads = 4                         # CPU threads (try 2/4/8)
+beam_size = 1                       # 1=fast, 5=balanced, 10=accurate
+language = "en"                     # optional language hint
+
+[[profiles]]
+name = "Accurate"
+model_type = "medium"
+[profiles.hotkey]
+modifiers = ["Command", "Shift"]
+key = "V"
+threads = 4
+beam_size = 5
+language = "en"
 
 [audio]
 buffer_size = 1024                  # frames (leave default)
 sample_rate = 16000                 # Hz (leave default)
 
-[model]
-model_type = "small"                # tiny, base, small, medium, large, tiny.en, base.en, small.en, medium.en
-preload = true                      # load on startup (recommended)
-threads = 4                         # CPU threads (try 2/4/8)
-beam_size = 5                       # 1=fast, 5=balanced, 10=accurate
-
 [telemetry]
 enabled = true                      # local crash logging only
 log_path = "~/.whisper-hotkey/crash.log"
+
+[recording]
+enabled = true                      # save debug recordings
+retention_days = 7                  # auto-delete after N days
+max_count = 100                     # keep max N recordings
+cleanup_interval_hours = 24         # cleanup frequency
+
+[aliases]
+enabled = true                      # fuzzy text replacement
+threshold = 0.85                    # match threshold (0.0-1.0)
+[aliases.entries]
+"my email" = "user@example.com"
+"my address" = "123 Main St, City, State 12345"
+"github" = "https://github.com/username"
 ```
 
 **After editing**: Restart app (`Ctrl+C`, then `cargo run --release`)
+
+**Note:** You can define multiple profiles with different models and hotkeys. The tray icon menu shows all active profiles.
 
 ---
 
@@ -387,6 +422,81 @@ mise exec -- cargo clippy
 - cpal (audio capture)
 - global-hotkey (hotkey detection)
 - Core Graphics CGEvent (text insertion)
+- tray-icon (menubar integration)
+
+---
+
+## Advanced Features
+
+### Multi-Profile Support
+
+Define multiple transcription profiles with different models and hotkeys:
+
+- **Fast profile** (Ctrl+Option+Z): Use `small` model for quick notes
+- **Accurate profile** (Cmd+Shift+V): Use `medium` model for emails
+
+Each profile can have different:
+- Model type (tiny → large)
+- Hotkey combination
+- Inference settings (threads, beam_size)
+- Language hints
+
+The tray icon menu displays all active profiles with their hotkeys and models.
+
+### Smart Aliases
+
+Replace transcribed text with predefined values using fuzzy matching:
+
+```toml
+[aliases]
+enabled = true
+threshold = 0.85  # 0.0 (loose) to 1.0 (exact)
+[aliases.entries]
+"my email" = "john.doe@company.com"
+"office address" = "123 Main St, Suite 400, San Francisco, CA 94105"
+"github profile" = "https://github.com/username"
+```
+
+**How it works:**
+- Case-insensitive fuzzy matching (Jaro-Winkler algorithm)
+- Say "my email" → automatically replaced with your configured email
+- Handles pronunciation variations (e.g., "office address" vs "office adress")
+- Best match wins if multiple aliases are close
+
+**Use cases:**
+- Email addresses / phone numbers
+- Physical addresses
+- URLs / code snippets
+- Company names / product names
+
+### Menubar Tray Icon
+
+Visual feedback and quick access:
+
+- **Adaptive icon** (idle): Black on light mode, white on dark mode
+- **Red icon** (recording): Shows when hotkey is pressed
+- **Yellow icon** (processing): Shows during transcription
+- **Menu**: Lists all profiles, "Open Config File", "Quit"
+- **Retina support**: Automatically uses high-DPI icons
+
+### Debug Recording Retention
+
+Optionally save audio recordings for debugging:
+
+```toml
+[recording]
+enabled = true           # Save recordings to ~/.whisper-hotkey/debug/
+retention_days = 7       # Auto-delete after N days
+max_count = 100          # Keep max N most recent recordings
+cleanup_interval_hours = 24  # Cleanup frequency
+```
+
+Recordings named: `recording_{timestamp}.wav`
+
+**Use cases:**
+- Debug transcription accuracy issues
+- Compare different model performance
+- Report bugs with audio samples
 
 ---
 

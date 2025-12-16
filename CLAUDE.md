@@ -11,35 +11,69 @@ macOS background app for system-wide voice-to-text via hotkey using local Whispe
 
 ```
 src/
-├── main.rs              # Event loop, initialization
+├── main.rs                # Event loop, initialization, NSApplication
 ├── audio/
-│   ├── capture.rs      # CoreAudio FFI, ring buffer, real-time thread
-│   └── vad.rs          # Voice activity detection
+│   ├── mod.rs
+│   └── capture.rs        # cpal audio capture, ring buffer
 ├── transcription/
-│   ├── engine.rs       # Whisper model loading, inference
-│   └── queue.rs        # Async queue for audio chunks
+│   ├── mod.rs
+│   ├── engine.rs         # Whisper model loading, inference, multi-profile
+│   └── download.rs       # Model download from HuggingFace
 ├── input/
-│   ├── hotkey.rs       # global-hotkey integration
-│   └── cgevent.rs      # CGEvent text insertion FFI
-├── config.rs           # TOML config (~/.whisper-hotkey/config.toml)
-└── telemetry.rs        # tracing, performance metrics
+│   ├── mod.rs
+│   ├── hotkey.rs         # global-hotkey integration, multi-profile
+│   └── cgevent.rs        # CGEvent text insertion FFI
+├── tray.rs               # Menubar tray icon with state display
+├── alias.rs              # Fuzzy text matching for alias replacement
+├── recording_cleanup.rs  # Debug recording retention management
+├── permissions.rs        # Microphone + Accessibility + Input Monitoring
+├── config.rs             # TOML config (~/.whisper-hotkey/config.toml)
+└── telemetry.rs          # tracing, performance metrics
 ```
 
 **Config:** `~/.whisper-hotkey/config.toml`
 ```toml
-[hotkey]
-key = "V"
+# Multi-profile support - each profile has its own hotkey and model
+[[profiles]]
+name = "Fast"
+model_type = "small"
+[profiles.hotkey]
+modifiers = ["Control", "Option"]
+key = "Z"
+preload = true
+threads = 4
+beam_size = 1
+language = "en"
+
+[[profiles]]
+name = "Accurate"
+model_type = "medium"
+[profiles.hotkey]
 modifiers = ["Command", "Shift"]
+key = "V"
+threads = 4
+beam_size = 5
+language = "en"
 
 [audio]
 sample_rate = 16000
 buffer_size = 1024
 
-[model]
-model_type = "base.en"  # Options: tiny, base, small, medium, large, tiny.en, base.en, small.en, medium.en
-preload = true
-threads = 4
-beam_size = 5
+[telemetry]
+enabled = true
+log_path = "~/.whisper-hotkey/crash.log"
+
+[recording]
+enabled = true  # Save debug recordings
+retention_days = 7
+max_count = 100
+
+[aliases]
+enabled = true
+threshold = 0.85  # Fuzzy match threshold (0.0-1.0)
+[aliases.entries]
+"my email" = "user@example.com"
+"my address" = "123 Main St, City, State 12345"
 ```
 
 ---
@@ -102,10 +136,10 @@ unsafe fn audio_callback(device_ptr: *mut AudioDevice) {
 ```
 
 **Async Boundaries:**
-- Main thread: tokio (event loop, hotkey)
-- Audio thread: OS real-time thread (NOT tokio, NO allocations/locks/syscalls)
+- Main thread: tokio (event loop, hotkey, tray events)
+- Audio thread: cpal callback thread (minimize allocations/locks)
 - Transcription: tokio blocking pool (Whisper is CPU-bound, NOT async)
-- Communication: `crossbeam::channel` or `tokio::sync::mpsc`
+- Communication: `tokio::sync::mpsc` or `Arc<Mutex<T>>`
 
 **Concurrency:**
 - Audio thread: Lock-free only (ring buffer, atomics)
@@ -220,14 +254,17 @@ RUST_LOG=whisper_hotkey=trace cargo run
 
 ## macOS-Specific Patterns
 
-**CoreAudio (real-time thread constraints):**
+**Audio Capture (cpal):**
 ```rust
-audio_unit.set_input_callback(move |args| {
-    // CRITICAL: NO heap allocations, NO locks, NO syscalls
-    let samples = args.data.as_slice::<f32>();
-    ring_buffer.push_slice(samples);  // Lock-free only
-    Ok(())
-})?;
+let stream = device.build_input_stream(
+    &config,
+    move |data: &[f32], _: &_| {
+        // Minimize allocations/locks in audio thread
+        ring_buffer.push_slice(data);  // Lock-free preferred
+    },
+    error_callback,
+    None,
+)?;
 ```
 
 **CGEvent Text Insertion:**
@@ -242,10 +279,28 @@ fn insert_text(text: &str) -> Result<()> {
 }
 ```
 
+**NSApplication (required for global-hotkey):**
+```rust
+#[cfg(target_os = "macos")]
+unsafe {
+    let app = NSApp();
+    app.setActivationPolicy_(NSApplicationActivationPolicyAccessory);
+}
+```
+
+**Tray Icon (retina support):**
+```rust
+// Detect display scale for proper icon sizing
+let scale = NSScreen::backingScaleFactor(screen);
+let icon_size = if scale >= 2.0 { 32 } else { 16 };
+```
+
 **Permissions:**
-- Accessibility (CGEvent + hotkey), Microphone (CoreAudio)
-- NO sandboxing (incompatible)
-- Check at startup, clear error messages
+- Microphone (audio capture)
+- Accessibility (CGEvent + global-hotkey)
+- Input Monitoring (hotkey detection)
+- NO sandboxing (incompatible with system APIs)
+- Check at startup, provide clear instructions for quarantine removal
 
 ---
 
@@ -253,28 +308,48 @@ fn insert_text(text: &str) -> Result<()> {
 
 **Whisper:**
 - GGML format (quantized CPU inference)
-- base.en = sweet spot (speed/accuracy)
+- small = default (good speed/accuracy balance)
+- Multi-profile support: different models per hotkey
 - Preload at startup (2-3s load = critical, NOT per-transcription)
 - Synchronous, thread-safe (`Arc`), NO async
 
 **Audio:**
-- CoreAudio callback: OS real-time thread, <10ms (prefer <1ms)
-- Violations = audio glitches
-- Ring buffer for cross-thread (lock-free)
+- cpal for cross-platform audio input
+- Ring buffer for thread communication (lock-free preferred)
+- Minimize allocations in audio callback
 
 **Text Insertion:**
 - CGEvent simulates keyboard
 - Some apps block (Terminal secure input) - warn user, no fallback
 
+**Tray Icon:**
+- Three states: Idle (adaptive), Recording (red), Processing (yellow)
+- Displays all profiles with hotkeys
+- Retina display detection for proper icon sizing
+- Menu rebuilt on state changes (macOS set_icon bug workaround)
+
+**Aliases:**
+- Fuzzy matching using Jaro-Winkler similarity
+- Case-insensitive matching
+- Configurable threshold (default 0.85)
+- Best match selection when multiple aliases match
+
+**Recording Cleanup:**
+- Debug recordings saved to `~/.whisper-hotkey/debug/`
+- Automatic cleanup based on age and count
+- Configurable retention policy
+
 **Known Issues:**
-- Model must exist at config path (validate at startup)
-- App crashes if permissions denied (graceful handling needed)
-- Reset permissions: `tccutil reset Microphone`
+- Model must exist at config path (auto-downloaded on first run)
+- macOS quarantine blocks permissions (provide `xattr -d` command)
+- Reset permissions: `tccutil reset Microphone`, `tccutil reset Accessibility`
 
 **Integration:**
 - whisper-rs: Blocking, thread-safe, run in blocking pool
-- global-hotkey: Event-based callback
-- cpal: Fallback if CoreAudio too complex (+10-20ms latency trade-off)
+- global-hotkey: Event-based callback, requires NSApplication
+- cpal: Audio capture (simpler than CoreAudio FFI)
+- tray-icon: Menubar integration
+- strsim: Fuzzy matching for aliases
 
 ---
 
@@ -302,10 +377,13 @@ Measure, don't guess.
 
 ## Additional Resources
 
-- [whisper.cpp](https://github.com/ggerganov/whisper.cpp), [whisper-rs](https://github.com/tazz4843/whisper-rs)
-- [core-graphics-rs](https://github.com/servo/core-graphics-rs), [coreaudio-rs](https://github.com/RustAudio/coreaudio-rs)
-- [ringbuf](https://docs.rs/ringbuf/), [Tokio](https://tokio.rs/tokio/tutorial)
-- [Whisper models](https://huggingface.co/ggerganov/whisper.cpp)
+- **Documentation:** https://automaat.github.io/whisper-hotkey/ (mdBook site)
+- **Whisper:** [whisper.cpp](https://github.com/ggerganov/whisper.cpp), [whisper-rs](https://github.com/tazz4843/whisper-rs)
+- **Models:** [Whisper models](https://huggingface.co/ggerganov/whisper.cpp)
+- **macOS APIs:** [core-graphics-rs](https://github.com/servo/core-graphics-rs), [cocoa-rs](https://github.com/servo/core-foundation-rs)
+- **Audio:** [cpal](https://github.com/RustAudio/cpal), [ringbuf](https://docs.rs/ringbuf/)
+- **UI:** [tray-icon](https://github.com/tauri-apps/tray-icon), [global-hotkey](https://github.com/tauri-apps/global-hotkey)
+- **Async:** [Tokio](https://tokio.rs/tokio/tutorial)
 
 ---
 
