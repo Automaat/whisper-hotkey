@@ -1,380 +1,88 @@
 # Alias Matching
 
-Auto-expand common phrases and words using fuzzy matching.
+Auto-expand spoken phrases into text. Say "period" → inserts "."
 
-## What Is Alias Matching?
-
-Alias matching automatically replaces transcribed phrases with predefined outputs:
-
-- **Input:** "dot com" (spoken)
-- **Transcribed:** "dot com"
-- **Output:** ".com" (inserted)
-
-Uses fuzzy string matching to handle Whisper transcription variations.
-
-## Use Cases
-
-### Punctuation
-
-```toml
-[aliases]
-enabled = true
-threshold = 0.8
-
-[aliases.entries]
-"period" = "."
-"comma" = ","
-"semicolon" = ";"
-"colon" = ":"
-"question mark" = "?"
-"exclamation mark" = "!"
-"exclamation point" = "!"
-"dash" = "-"
-"hyphen" = "-"
-"underscore" = "_"
-```
-
-### Common Phrases
-
-```toml
-[aliases.entries]
-"dot com" = ".com"
-"dot org" = ".org"
-"dot net" = ".net"
-"at sign" = "@"
-"hashtag" = "#"
-"dollar sign" = "$"
-"percent sign" = "%"
-"ampersand" = "&"
-```
-
-### Code Symbols
-
-```toml
-[aliases.entries]
-"left paren" = "("
-"right paren" = ")"
-"left bracket" = "["
-"right bracket" = "]"
-"left brace" = "{"
-"right brace" = "}"
-"equals" = "="
-"plus" = "+"
-"minus" = "-"
-"asterisk" = "*"
-"slash" = "/"
-"backslash" = "\\"
-"pipe" = "|"
-```
-
-### Email/URL Shortcuts
-
-```toml
-[aliases.entries]
-"my email" = "user@example.com"
-"work email" = "user@company.com"
-"personal website" = "https://example.com"
-"github profile" = "https://github.com/username"
-```
-
-### Frequently Used Text
-
-```toml
-[aliases.entries]
-"my phone" = "+1-555-123-4567"
-"my address" = "123 Main St, City, ST 12345"
-"meeting link" = "https://zoom.us/j/123456789"
-"signature" = "Best regards,\nYour Name"
-```
-
-## Configuration
-
-### Basic Setup
+## Quick Start
 
 Edit `~/.whisper-hotkey/config.toml`:
 
 ```toml
 [aliases]
-enabled = true       # Enable alias matching (default: true)
-threshold = 0.8      # Similarity threshold 0.0-1.0 (default: 0.8)
+enabled = true
+threshold = 0.8  # Default: handles Whisper transcription variations
 
 [aliases.entries]
-# Add your aliases here
+"period" = "."
+"comma" = ","
 "dot com" = ".com"
-"at sign" = "@"
 ```
 
-### Threshold
+Restart app, then say: "Hello world period" → inserts "Hello world."
 
-The `threshold` controls fuzzy matching sensitivity:
+## Common Examples
 
-- **`1.0`** - Exact match only (no typos allowed)
-- **`0.9`** - Very strict (1-2 char difference)
-- **`0.8`** - Balanced (default, handles most Whisper variations)
-- **`0.7`** - Lenient (allows more variation)
-- **`0.6`** - Very lenient (may match unintended phrases)
+### Punctuation
 
-**Recommendation:** Start with `0.8`, adjust if needed.
-
-### Alias Format
-
-```toml
-[aliases.entries]
-"trigger phrase" = "output text"
-```
-
-- **Trigger phrase** (left): What Whisper transcribes
-- **Output text** (right): What gets inserted
-
-**Rules:**
-- Case-insensitive matching
-- Whitespace normalized
-- Uses Levenshtein distance for fuzzy matching
-
-## Examples
-
-### Simple Punctuation
-
-**Config:**
 ```toml
 [aliases.entries]
 "period" = "."
 "comma" = ","
-```
-
-**Usage:**
-- Say: "Hello world period"
-- Transcribed: "Hello world period"
-- Inserted: "Hello world."
-
-### Multi-Word Aliases
-
-**Config:**
-```toml
-[aliases.entries]
+"question mark" = "?"
+"exclamation mark" = "!"
+"semicolon" = ";"
+"colon" = ":"
+"new line" = "\n"
 "new paragraph" = "\n\n"
-"line break" = "\n"
 ```
 
-**Usage:**
-- Say: "First paragraph new paragraph second paragraph"
-- Inserted: "First paragraph\n\nSecond paragraph"
+**Usage:** "Send email to John comma ask about meeting period"
+→ "Send email to John, ask about meeting."
 
-### Special Characters
-
-**Config:**
-```toml
-[aliases.entries]
-"left arrow" = "←"
-"right arrow" = "→"
-"check mark" = "✓"
-"cross mark" = "✗"
-```
-
-### Code Templates
-
-**Config:**
-```toml
-[aliases.entries]
-"function def" = "function () {\n  \n}"
-"if statement" = "if () {\n  \n}"
-"for loop" = "for (let i = 0; i < ; i++) {\n  \n}"
-```
-
-## Fuzzy Matching Behavior
-
-### Why Fuzzy Matching?
-
-Whisper may transcribe trigger phrases with slight variations:
-
-- "period" → "Period" (case difference)
-- "dot com" → "dotcom" (spacing difference)
-- "at sign" → "at sine" (transcription error)
-
-Fuzzy matching handles these automatically.
-
-### Matching Examples
-
-With `threshold = 0.8`:
-
-| Spoken | Transcribed | Alias | Matches? |
-|--------|-------------|-------|----------|
-| "period" | "period" | "period" = "." | ✅ Yes (exact) |
-| "period" | "Period" | "period" = "." | ✅ Yes (case) |
-| "dot com" | "dotcom" | "dot com" = ".com" | ✅ Yes (spacing) |
-| "at sign" | "at sine" | "at sign" = "@" | ✅ Yes (1 char) |
-| "comma" | "coma" | "comma" = "," | ✅ Yes (1 char) |
-| "semicolon" | "semi colon" | "semicolon" = ";" | ✅ Yes (spacing) |
-| "period" | "paragraph" | "period" = "." | ❌ No (too different) |
-
-### Multiple Matches
-
-If multiple aliases match, **best match wins** (highest similarity).
-
-**Example:**
+### Email & Web
 
 ```toml
 [aliases.entries]
-"at" = "@"
 "at sign" = "@"
+"dot com" = ".com"
+"dot org" = ".org"
+"my email" = "john@example.com"
+"work email" = "john@company.com"
+"github" = "https://github.com/username"
 ```
 
-- Transcribed: "at sign"
-- "at sign" matches better than "at"
-- Uses "at sign" mapping
+**Usage:** "Contact me at my email"
+→ "Contact me at john@example.com"
 
-## Performance
-
-### Matching Speed
-
-Alias matching adds minimal overhead:
-- ~1-2ms for 10 aliases
-- ~5-10ms for 100 aliases
-- ~20-30ms for 1000 aliases
-
-**Recommendation:** Keep under 100 aliases for best performance.
-
-### Memory Usage
-
-Negligible (~1KB per alias).
-
-## Advanced Usage
-
-### Context-Aware Aliases
-
-Use profile-specific aliases by creating separate configs (future feature).
-
-Current workaround: Include all aliases, use unique trigger phrases.
+### Code Symbols
 
 ```toml
 [aliases.entries]
-# General aliases
-"period" = "."
-
-# Code-specific (unique phrases)
-"rust function" = "fn () {\n  \n}"
-"python function" = "def ():\n    "
-
-# Email-specific
-"email sign off" = "Best regards,\nYour Name"
+"equals" = "="
+"plus" = "+"
+"left paren" = "("
+"right paren" = ")"
+"left brace" = "{"
+"right brace" = "}"
+"arrow" = "=>"
 ```
 
-### Multi-Line Output
+**Usage:** "function getName left paren right paren left brace"
+→ "function getName() {"
 
-Use `\n` for newlines:
+### Personal Snippets
 
 ```toml
 [aliases.entries]
-"my signature" = "Best regards,\nJohn Doe\nSenior Engineer\ncompany@example.com"
+"my phone" = "+1-555-123-4567"
+"my address" = "123 Main St, Anytown, CA 12345"
+"meeting link" = "https://zoom.us/j/123456789"
+"signature" = "Best regards,\nJohn Doe\njohn@example.com"
 ```
 
-### Escape Characters
+**Usage:** "Call me at my phone"
+→ "Call me at +1-555-123-4567"
 
-TOML string escaping:
-
-```toml
-[aliases.entries]
-"quote" = "\""        # Double quote
-"single quote" = "'"  # Single quote
-"backslash" = "\\"    # Backslash
-"tab" = "\t"          # Tab character
-```
-
-### Unicode Characters
-
-Full Unicode support:
-
-```toml
-[aliases.entries]
-"smiley face" = "😊"
-"check mark" = "✓"
-"arrow right" = "→"
-"lambda" = "λ"
-```
-
-## Troubleshooting
-
-### Alias Not Matching
-
-**Symptom:** Spoke trigger phrase but didn't expand
-
-**Solutions:**
-
-1. **Check transcription:**
-   ```bash
-   # Look at console output for actual transcription
-   ✨ Transcription: "actual text"
-   ```
-
-2. **Lower threshold:**
-   ```toml
-   threshold = 0.7  # More lenient
-   ```
-
-3. **Add alternative triggers:**
-   ```toml
-   "period" = "."
-   "full stop" = "."  # British English alternative
-   ```
-
-4. **Check alias is enabled:**
-   ```toml
-   [aliases]
-   enabled = true
-   ```
-
-### Wrong Alias Matched
-
-**Symptom:** Different alias matched than intended
-
-**Cause:** Multiple similar aliases, wrong one had better score
-
-**Solution:** Make trigger phrases more distinct:
-
-**Before:**
-```toml
-"at" = "@"
-"at sign" = "@gmail.com"  # Too similar
-```
-
-**After:**
-```toml
-"at symbol" = "@"
-"gmail address" = "@gmail.com"  # More distinct
-```
-
-### Alias Matching Too Aggressive
-
-**Symptom:** Unintended words getting replaced
-
-**Solution:** Increase threshold:
-
-```toml
-threshold = 0.9  # More strict
-```
-
-### Special Characters Not Working
-
-**Symptom:** Backslashes or quotes not inserting correctly
-
-**Solution:** Use proper TOML escaping:
-
-```toml
-"backslash" = "\\\\"  # Double escape for TOML
-"quote" = "\""        # Escape double quote
-"newline" = "\\n"     # Literal \n (not newline)
-```
-
-## Best Practices
-
-1. **Start small** - Add 5-10 common aliases first
-2. **Test each alias** - Verify trigger phrase matches consistently
-3. **Use distinct phrases** - Avoid overlapping trigger phrases
-4. **Document your aliases** - Comment config for future reference
-5. **Keep threshold at 0.8** - Unless you have specific needs
-6. **Group related aliases** - Use comments for organization
-
-**Example organized config:**
+## Complete Example Config
 
 ```toml
 [aliases]
@@ -382,39 +90,42 @@ enabled = true
 threshold = 0.8
 
 [aliases.entries]
-# === Punctuation ===
+# Punctuation
 "period" = "."
 "comma" = ","
-"semicolon" = ";"
-"colon" = ":"
+"question mark" = "?"
+"new line" = "\n"
 
-# === Common Phrases ===
-"dot com" = ".com"
+# Common
 "at sign" = "@"
+"dot com" = ".com"
+"dollar sign" = "$"
 
-# === Personal Info ===
-"my email" = "user@example.com"
-"my phone" = "+1-555-123-4567"
-
-# === Code Symbols ===
-"left paren" = "("
-"right paren" = ")"
-"equals" = "="
+# Personal
+"my email" = "john@example.com"
+"my phone" = "+1-555-1234"
+"my address" = "123 Main St, City, ST 12345"
 ```
 
-## Disabling Alias Matching
+## Tips
 
-To disable temporarily:
+**Threshold:** Default `0.8` works for most cases. Handles minor transcription variations.
+- Too many false matches? Increase to `0.9`
+- Not matching? Lower to `0.7`
 
+**Testing:** Say the trigger phrase in normal speech to verify it works.
+
+**Organizing:** Group related aliases with comments for easier management.
+
+## Troubleshooting
+
+**Alias not working:**
+1. Check alias enabled: `enabled = true`
+2. Verify trigger phrase is what Whisper actually transcribes
+3. Try lowering threshold to `0.7`
+
+**Disable aliases:**
 ```toml
 [aliases]
 enabled = false
 ```
-
-To disable completely, remove or comment out `[aliases]` section.
-
-## Next Steps
-
-- Optimize [Performance Settings](../configuration/performance.md)
-- Learn about [Configuration Reference](../configuration/reference.md)
-- See [Common Issues](../troubleshooting/common-issues.md)
