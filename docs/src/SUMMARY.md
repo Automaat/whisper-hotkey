@@ -22,13 +22,6 @@
 - [Model Selection](./configuration/models.md)
 - [Performance Tuning](./configuration/performance.md)
 
-# Development
-
-- [Project Structure](./development/structure.md)
-- [Building from Source](./development/building.md)
-- [Testing](./development/testing.md)
-- [Contributing](./development/contributing.md)
-
 # Troubleshooting
 
 - [Common Issues](./troubleshooting/common-issues.md)
