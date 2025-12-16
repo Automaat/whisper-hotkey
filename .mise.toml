@@ -2,6 +2,7 @@
 rust = "1.91"  # edition2024 support for coreaudio-sys
 shellcheck = "0.11.0"
 actionlint = "1.7.9"
+mdbook = "0.4.43"
 
 [tasks.check]
 description = "Run all linters"
@@ -35,3 +36,8 @@ run = "cargo fmt --all"
 [tasks.coverage]
 description = "Generate code coverage"
 run = "cargo llvm-cov --lcov --output-path lcov.info"
+
+[tasks.docs]
+description = "Serve documentation with live reload"
+dir = "docs"
+run = "mdbook serve --open"
