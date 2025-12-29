@@ -17,7 +17,7 @@ core-foundation = "0.10"
 cocoa = "0.25"
 
 # Phase 2: Global Hotkey
-global-hotkey = "0.6"
+global-hotkey = "0.7"
 
 # Phase 3: Audio Recording
 cpal = "0.15"
