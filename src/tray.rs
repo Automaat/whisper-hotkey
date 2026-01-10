@@ -1,7 +1,5 @@
 use anyhow::{anyhow, Context, Result};
-use cocoa::appkit::NSScreen;
-use cocoa::base::id;
-use cocoa::foundation::NSArray;
+use objc2_app_kit::NSScreen;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tray_icon::menu::{Menu, MenuItem, PredefinedMenuItem};
@@ -55,19 +53,20 @@ impl TrayManager {
     /// # Safety
     /// Uses Cocoa FFI to query `NSScreen` backing scale factor:
     /// - `NSScreen::screens()` returns a retained `NSArray` (non-null by Cocoa contract)
-    /// - `objectAtIndex(0)` returns a valid `NSScreen*` for the lifetime of this function
-    /// - `backingScaleFactor` is a safe getter with no side effects
+    /// - Array indexing is safe when `len()` > 0
+    /// - `backingScaleFactor()` is a safe getter with no side effects
     fn detect_display_scale() -> f64 {
-        unsafe {
-            let screens = NSScreen::screens(cocoa::base::nil);
-            // NSScreen::screens() returns an autoreleased NSArray (non-null by Cocoa)
-            if screens.is_null() || NSArray::count(screens) == 0 {
-                // Fallback to retina if no screens detected (most modern Macs)
-                return 2.0;
-            }
-            let screen: id = screens.objectAtIndex(0);
-            NSScreen::backingScaleFactor(screen)
-        }
+        use objc2_foundation::MainThreadMarker;
+
+        // Safety: This is called during initialization on the main thread
+        let mtm = unsafe { MainThreadMarker::new_unchecked() };
+        let screens = NSScreen::screens(mtm);
+
+        // Fallback to retina if no screens detected (most modern Macs)
+        screens
+            .iter()
+            .next()
+            .map_or(2.0, |screen| screen.backingScaleFactor())
     }
 
     fn build_tray(

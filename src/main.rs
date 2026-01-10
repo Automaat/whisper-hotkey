@@ -32,17 +32,19 @@ use global_hotkey::GlobalHotKeyEvent;
 use std::sync::{Arc, Mutex};
 
 #[cfg(target_os = "macos")]
-use cocoa::appkit::{NSApp, NSApplication, NSApplicationActivationPolicyAccessory};
+use objc2_app_kit::{NSApp, NSApplicationActivationPolicy};
 #[cfg(target_os = "macos")]
-use cocoa::base::nil;
+use objc2_foundation::MainThreadMarker;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     // macOS: Initialize NSApplication event loop (required for global-hotkey)
     #[cfg(target_os = "macos")]
-    unsafe {
-        let app = NSApp();
-        app.setActivationPolicy_(NSApplicationActivationPolicyAccessory);
+    {
+        // Safety: main() runs on the main thread
+        let mtm = unsafe { MainThreadMarker::new_unchecked() };
+        let app = NSApp(mtm);
+        app.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
     }
     // Phase 1: Foundation
     // Load configuration
@@ -219,27 +221,33 @@ async fn main() -> Result<()> {
     loop {
         // macOS: Pump the event loop to process global hotkey events
         #[cfg(target_os = "macos")]
-        unsafe {
-            use cocoa::foundation::{NSAutoreleasePool, NSDate};
+        {
+            use objc2::rc::autoreleasepool;
+            use objc2_app_kit::NSEventMask;
+            use objc2_foundation::{NSDate, NSDefaultRunLoopMode};
 
-            let pool = NSAutoreleasePool::new(nil);
-            let app = NSApp();
-            let distant_past = NSDate::distantPast(nil);
+            autoreleasepool(|_| {
+                // Safety: Event loop runs on main thread
+                let mtm = unsafe { MainThreadMarker::new_unchecked() };
+                let app = NSApp(mtm);
+                let distant_past = NSDate::distantPast();
 
-            loop {
-                let event = app.nextEventMatchingMask_untilDate_inMode_dequeue_(
-                    u64::MAX,
-                    distant_past,
-                    cocoa::foundation::NSDefaultRunLoopMode,
-                    true,
-                );
-                if event == nil {
-                    break;
+                loop {
+                    let event = unsafe {
+                        app.nextEventMatchingMask_untilDate_inMode_dequeue(
+                            NSEventMask(u64::MAX),
+                            Some(&distant_past),
+                            NSDefaultRunLoopMode,
+                            true,
+                        )
+                    };
+                    if let Some(event) = event {
+                        app.sendEvent(&event);
+                    } else {
+                        break;
+                    }
                 }
-                app.sendEvent_(event);
-            }
-
-            pool.drain();
+            });
         }
 
         // Poll for hotkey events
