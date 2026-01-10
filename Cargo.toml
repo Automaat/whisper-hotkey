@@ -14,7 +14,7 @@ anyhow = "1"
 thiserror = "1"
 core-graphics = "0.23"
 core-foundation = "0.10"
-cocoa = "0.25"
+cocoa = "0.26"
 
 # Phase 2: Global Hotkey
 global-hotkey = "0.6"
