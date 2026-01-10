@@ -384,31 +384,33 @@ impl MultiHotkeyManager {
     #[cfg(target_os = "macos")]
     #[allow(unsafe_code)] // Required for NSApplication event loop FFI
     fn pump_event_loop() {
-        use cocoa::appkit::{NSApp, NSApplication};
-        use cocoa::base::nil;
-        use cocoa::foundation::{NSAutoreleasePool, NSDate};
+        use objc2::rc::autoreleasepool;
+        use objc2_app_kit::{NSApp, NSEventMask};
+        use objc2_foundation::{MainThreadMarker, NSDate, NSDefaultRunLoopMode};
 
-        unsafe {
-            let pool = NSAutoreleasePool::new(nil);
-            let app = NSApp();
-            let distant_past = NSDate::distantPast(nil);
+        autoreleasepool(|_| {
+            // Safety: This function is only called during initialization on the main thread
+            let mtm = unsafe { MainThreadMarker::new_unchecked() };
+            let app = NSApp(mtm);
+            let distant_past = NSDate::distantPast();
 
             // Process all pending events
             loop {
-                let event = app.nextEventMatchingMask_untilDate_inMode_dequeue_(
-                    u64::MAX,
-                    distant_past,
-                    cocoa::foundation::NSDefaultRunLoopMode,
-                    true,
-                );
-                if event == nil {
+                let event = unsafe {
+                    app.nextEventMatchingMask_untilDate_inMode_dequeue(
+                        NSEventMask(u64::MAX),
+                        Some(&distant_past),
+                        NSDefaultRunLoopMode,
+                        true,
+                    )
+                };
+                if let Some(event) = event {
+                    app.sendEvent(&event);
+                } else {
                     break;
                 }
-                app.sendEvent_(event);
             }
-
-            pool.drain();
-        }
+        });
     }
 
     #[cfg(not(target_os = "macos"))]
