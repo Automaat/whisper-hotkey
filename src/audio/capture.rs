@@ -90,15 +90,17 @@ impl AudioCapture {
             .default_input_device()
             .context("no input device available")?;
 
-        let device_name = device.name().unwrap_or_else(|_| "unknown".to_owned());
-        info!("using input device: {}", device_name);
+        let device_desc = device
+            .description()
+            .map_or_else(|_| "unknown".to_owned(), |d| d.to_string());
+        info!("using input device: {}", device_desc);
 
         // Get device config (use device default, will resample to 16kHz later)
         let supported_config = device
             .default_input_config()
             .context("failed to get default input config")?;
 
-        let device_sample_rate = supported_config.sample_rate().0;
+        let device_sample_rate = supported_config.sample_rate();
         let device_channels = supported_config.channels();
 
         info!(
