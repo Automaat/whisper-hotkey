@@ -1,7 +1,7 @@
 [tools]
 rust = "1.92.0"  # edition2024 support for coreaudio-sys
 shellcheck = "0.11.0"
-actionlint = "1.7.9"
+actionlint = "1.7.10"
 mdbook = "0.4.43"
 
 [tasks.check]
