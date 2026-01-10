@@ -20,7 +20,7 @@ cocoa = "0.25"
 global-hotkey = "0.6"
 
 # Phase 3: Audio Recording
-cpal = "0.15"
+cpal = "0.17"
 ringbuf = "0.4"
 hound = "3"
 
