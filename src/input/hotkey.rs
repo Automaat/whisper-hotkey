@@ -102,12 +102,20 @@ impl HotkeyManager {
 
                 if let Err(e) = recording_result {
                     warn!(error = %e, "❌ Failed to start recording");
-                    let mut state = self
+                    *self
                         .state
                         .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner);
-                    *state = AppState::Idle;
-                    // Continue running - this is a transient error, user can try again
+                        .unwrap_or_else(std::sync::PoisonError::into_inner) = AppState::Idle;
+                    return;
+                }
+
+                // Start streaming if backend supports it
+                if let Some(engine) = &self.transcription {
+                    if engine.supports_streaming() {
+                        if let Err(e) = engine.start_stream() {
+                            warn!(error = %e, "failed to start stream, will use batch mode");
+                        }
+                    }
                 }
             }
             AppState::Recording => {
@@ -119,6 +127,42 @@ impl HotkeyManager {
                 debug!("hotkey pressed while processing (ignored)");
             }
         }
+    }
+
+    /// Send available audio chunks to stream (called periodically during recording)
+    /// Returns true if streaming is active and chunks were potentially sent
+    pub fn send_streaming_chunks_if_active(&self) -> bool {
+        // Only send if we're recording and have a streaming backend
+        let state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if *state != AppState::Recording {
+            return false;
+        }
+        drop(state);
+
+        let Some(engine) = &self.transcription else {
+            return false;
+        };
+        if !engine.supports_streaming() {
+            return false;
+        }
+
+        // Drain available audio and send
+        let samples = self
+            .audio
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .drain_available_samples();
+
+        if !samples.is_empty() {
+            if let Err(e) = engine.send_audio_chunk(&samples) {
+                debug!(error = %e, "failed to send audio chunk");
+            }
+        }
+
+        true
     }
 
     /// Handle hotkey release event
@@ -133,7 +177,7 @@ impl HotkeyManager {
                 *state = AppState::Processing;
                 drop(state);
 
-                // Stop audio recording and get samples
+                // Stop audio recording and get remaining samples
                 let stop_result = self
                     .audio
                     .lock()
@@ -142,8 +186,6 @@ impl HotkeyManager {
 
                 match stop_result {
                     Ok(samples) => {
-                        // Duration calculation: usize → f64 for sample_count / sample_rate
-                        // Safe: even 1hr audio = 57.6M samples, well within f64 precision
                         #[allow(clippy::cast_precision_loss)]
                         let duration_secs = samples.len() as f64 / 16000.0;
                         info!(
@@ -157,7 +199,18 @@ impl HotkeyManager {
                         if self.recording_enabled {
                             Self::save_debug_wav(&samples);
                         }
-                        self.process_transcription(samples);
+
+                        // Check if we can use streaming finish
+                        let use_streaming = self
+                            .transcription
+                            .as_ref()
+                            .is_some_and(|e| e.supports_streaming());
+
+                        if use_streaming {
+                            self.finish_streaming_transcription(samples);
+                        } else {
+                            self.process_transcription(samples);
+                        }
                     }
                     Err(e) => {
                         warn!(error = %e, "❌ Failed to stop recording: {}", e);
@@ -166,7 +219,6 @@ impl HotkeyManager {
                             .lock()
                             .unwrap_or_else(std::sync::PoisonError::into_inner);
                         *state = AppState::Idle;
-                        // Continue running - this is a transient error, user can try again
                     }
                 }
             }
@@ -179,6 +231,64 @@ impl HotkeyManager {
                 debug!("hotkey released while processing (ignored)");
             }
         }
+    }
+
+    /// Finish streaming transcription and insert text
+    fn finish_streaming_transcription(&self, remaining_samples: Vec<f32>) {
+        let engine = self.transcription.clone();
+        let state_arc = Arc::clone(&self.state);
+        let aliases = Arc::clone(&self.aliases);
+
+        std::thread::spawn(move || {
+            if let Some(engine) = engine {
+                // Send any remaining samples
+                if !remaining_samples.is_empty() {
+                    if let Err(e) = engine.send_audio_chunk(&remaining_samples) {
+                        warn!(error = %e, "failed to send final audio chunk");
+                    }
+                }
+
+                // Finish stream and get transcript
+                match engine.finish_stream() {
+                    Ok(text) => {
+                        let text_preview: String = text.chars().take(50).collect();
+                        info!(
+                            text_len = text.len(),
+                            text_preview = %text_preview,
+                            "✨ Transcription: \"{}{}\"",
+                            text_preview,
+                            if text.len() > 50 { "..." } else { "" }
+                        );
+
+                        let final_text = alias::apply_aliases(&text, &aliases);
+
+                        if final_text.is_empty() {
+                            info!("🔇 No speech detected (silence or noise)");
+                        } else if cgevent::insert_text_safe(&final_text) {
+                            info!(
+                                text_len = final_text.len(),
+                                "✅ Inserted {} chars",
+                                final_text.len()
+                            );
+                        } else {
+                            warn!(
+                                text_len = final_text.len(),
+                                text_preview = %text_preview,
+                                "❌ Text insertion failed - check permissions"
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        warn!(error = %e, "❌ Streaming transcription failed: {}", e);
+                    }
+                }
+            }
+
+            *state_arc
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = AppState::Idle;
+            info!("✓ Ready for next recording");
+        });
     }
 
     /// Save debug WAV file with error recovery
@@ -444,7 +554,7 @@ impl MultiHotkeyManager {
         let mut managers = Vec::new();
 
         for profile in profiles {
-            let model_name = profile.name();
+            let model_name = profile.name().to_owned();
 
             // Get engine if preloaded, None if lazy
             let (engine, lazy_config) = if profile.preload {
@@ -507,6 +617,14 @@ impl MultiHotkeyManager {
             .iter()
             .find(|(name, _)| name == profile_name)
             .map(|(_, mgr)| mgr.state_shared())
+    }
+
+    /// Send streaming audio chunks for any active recording sessions
+    /// Call this periodically from the main event loop
+    pub fn send_streaming_chunks(&self) {
+        for (_, mgr) in &self.managers {
+            mgr.send_streaming_chunks_if_active();
+        }
     }
 }
 
@@ -694,7 +812,7 @@ mod tests {
     // Phase 2: Mock-based state machine tests
     mod mock_tests {
         use super::*;
-        use crate::transcription::engine::TranscriptionError;
+        use crate::transcription::backend::TranscriptionError;
         use mockall::mock;
         use mockall::predicate::*;
 

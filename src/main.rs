@@ -162,7 +162,7 @@ async fn main() -> Result<()> {
         anyhow::bail!("no profiles configured (at least one profile required)");
     }
     let app_state = multi_hotkey_manager
-        .profile_state(&config.profiles[0].name())
+        .profile_state(config.profiles[0].name())
         .context("failed to get state for first profile (profile may be misconfigured)")?;
     let mut tray_manager =
         tray::TrayManager::new(&config, app_state).context("failed to create tray icon")?;
@@ -269,6 +269,9 @@ async fn main() -> Result<()> {
             tracing::debug!("hotkey event received: {:?}", event);
             multi_hotkey_manager.handle_event(event);
         }
+
+        // Send streaming audio chunks if any profile is recording with streaming backend
+        multi_hotkey_manager.send_streaming_chunks();
 
         // Update tray menu/icon based on app state
         if let Err(e) = tray_manager.update_icon_if_needed(&config) {

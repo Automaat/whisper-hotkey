@@ -41,7 +41,7 @@ fn get_test_model_path() -> Option<PathBuf> {
 #[ignore = "Requires model file and Accessibility permissions with active text input"]
 fn test_transcribe_silence_to_text_insertion() {
     use whisper_hotkey::input::cgevent;
-    use whisper_hotkey::transcription::TranscriptionEngine;
+    use whisper_hotkey::transcription::engine::TranscriptionEngine;
 
     let Some(model_path) = get_test_model_path() else {
         eprintln!("Skipping: no model at ~/.whisper-hotkey/models/ggml-tiny.bin");
@@ -74,7 +74,7 @@ fn test_transcribe_silence_to_text_insertion() {
 #[ignore = "Requires model file and Accessibility permissions"]
 fn test_full_pipeline_with_tone() {
     use whisper_hotkey::input::cgevent;
-    use whisper_hotkey::transcription::TranscriptionEngine;
+    use whisper_hotkey::transcription::engine::TranscriptionEngine;
 
     let Some(model_path) = get_test_model_path() else {
         eprintln!("Skipping: no model");
@@ -202,7 +202,7 @@ fn test_text_insertion_error_handling() {
 #[ignore = "Requires model file"]
 fn test_transcription_performance() {
     use std::time::Instant;
-    use whisper_hotkey::transcription::TranscriptionEngine;
+    use whisper_hotkey::transcription::engine::TranscriptionEngine;
 
     let Some(model_path) = get_test_model_path() else {
         eprintln!("Skipping: no model");
@@ -241,7 +241,7 @@ fn test_transcription_performance() {
 fn test_concurrent_transcriptions() {
     use std::sync::Arc;
     use std::thread;
-    use whisper_hotkey::transcription::TranscriptionEngine;
+    use whisper_hotkey::transcription::engine::TranscriptionEngine;
 
     let Some(model_path) = get_test_model_path() else {
         eprintln!("Skipping: no model");
@@ -279,7 +279,7 @@ fn test_phase5_integration_module_exports() {
 
     // Verify all Phase 5 modules are accessible
     use whisper_hotkey::input::cgevent;
-    use whisper_hotkey::transcription::TranscriptionEngine;
+    use whisper_hotkey::transcription::engine::TranscriptionEngine;
 
     // Type checks (compile-time verification)
     let _: fn(&str) -> bool = cgevent::insert_text_safe;

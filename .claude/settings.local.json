@@ -63,7 +63,8 @@
       "Bash(open target/llvm-cov/html/index.html)",
       "Bash(open:*)",
       "Bash(git revert:*)",
-      "Bash(gh pr:*)"
+      "Bash(gh pr:*)",
+      "Bash(git merge:*)"
     ],
     "deny": [],
     "ask": []
