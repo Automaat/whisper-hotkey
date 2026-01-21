@@ -256,6 +256,20 @@ impl AudioCapture {
         Ok(samples_16khz_mono)
     }
 
+    /// Drain available samples without stopping recording (for streaming)
+    /// Returns samples converted to 16kHz mono
+    pub fn drain_available_samples(&mut self) -> Vec<f32> {
+        let mut samples = Vec::new();
+        while let Some(sample) = self.ring_buffer_consumer.try_pop() {
+            samples.push(sample);
+        }
+        if samples.is_empty() {
+            return Vec::new();
+        }
+        tracing::trace!(samples = samples.len(), "drained samples for streaming");
+        self.convert_to_16khz_mono(&samples)
+    }
+
     fn convert_to_16khz_mono(&self, samples: &[f32]) -> Vec<f32> {
         let _span = tracing::debug_span!("convert_to_16khz_mono").entered();
         let start_total = std::time::Instant::now();

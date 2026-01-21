@@ -270,6 +270,9 @@ async fn main() -> Result<()> {
             multi_hotkey_manager.handle_event(event);
         }
 
+        // Send streaming audio chunks if any profile is recording with streaming backend
+        multi_hotkey_manager.send_streaming_chunks();
+
         // Update tray menu/icon based on app state
         if let Err(e) = tray_manager.update_icon_if_needed(&config) {
             tracing::warn!(error = %e, "failed to update tray");

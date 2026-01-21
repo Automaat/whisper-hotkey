@@ -27,10 +27,6 @@ pub enum TranscriptionError {
     /// Deepgram configuration missing
     #[error("deepgram backend requires API key configuration")]
     DeepgramConfigMissing,
-
-    /// Audio format conversion error
-    #[error("audio format conversion failed: {0}")]
-    AudioConversion(String),
 }
 
 /// Trait for transcription backends (local Whisper or cloud Deepgram)
@@ -44,4 +40,42 @@ pub trait TranscriptionBackend: Send + Sync {
     /// Get backend name for telemetry
     #[allow(dead_code)] // TODO: Use for telemetry/logging
     fn backend_name(&self) -> &'static str;
+
+    /// Returns true if this backend supports streaming transcription
+    fn supports_streaming(&self) -> bool {
+        false
+    }
+
+    /// Start a streaming transcription session
+    /// Call this when recording starts to open connection early
+    ///
+    /// # Errors
+    /// Returns error if stream cannot be started
+    fn start_stream(&self) -> Result<(), TranscriptionError> {
+        Err(TranscriptionError::DeepgramApi(
+            "streaming not supported".into(),
+        ))
+    }
+
+    /// Send audio chunk to active stream (16kHz mono f32)
+    /// Call periodically during recording
+    ///
+    /// # Errors
+    /// Returns error if send fails or no active stream
+    fn send_audio_chunk(&self, _audio_data: &[f32]) -> Result<(), TranscriptionError> {
+        Err(TranscriptionError::DeepgramApi(
+            "streaming not supported".into(),
+        ))
+    }
+
+    /// Finish streaming and get final transcript
+    /// Call when recording stops
+    ///
+    /// # Errors
+    /// Returns error if finishing fails or no active stream
+    fn finish_stream(&self) -> Result<String, TranscriptionError> {
+        Err(TranscriptionError::DeepgramApi(
+            "streaming not supported".into(),
+        ))
+    }
 }
