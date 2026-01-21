@@ -72,6 +72,14 @@ jobs:
         with:
           path: ~/.cargo/git
           key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+      - name: Cache target directory
+        uses: actions/cache@8b402f58fbc84540c8b491a91e594a4576fec3d7 # v5.0.2
+        with:
+          path: target
+          key: ${{ runner.os }}-target-clippy-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-target-clippy-
+            ${{ runner.os }}-target-
       - name: Install clippy
         run: rustup component add clippy
       - name: Run clippy
@@ -86,7 +94,7 @@ jobs:
           CXXFLAGS: "-march=armv8-a"
 
   test:
-    needs: changes
+    needs: [changes, fmt, clippy]
     if: needs.changes.outputs.rust == 'true'
     name: Test
     runs-on: macos-latest
@@ -117,6 +125,15 @@ jobs:
         with:
           path: ~/.cargo/bin
           key: ${{ runner.os }}-cargo-tools-llvm-cov-${{ hashFiles('**/Cargo.lock') }}
+      - name: Cache target directory
+        uses: actions/cache@8b402f58fbc84540c8b491a91e594a4576fec3d7 # v5.0.2
+        with:
+          path: target
+          key: ${{ runner.os }}-target-test-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-target-test-
+            ${{ runner.os }}-target-clippy-
+            ${{ runner.os }}-target-
       - name: Install llvm-tools-preview
         run: rustup component add llvm-tools-preview
       - name: Install cargo-llvm-cov
@@ -141,7 +158,7 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
 
   build:
-    needs: changes
+    needs: [changes, test]
     if: needs.changes.outputs.rust == 'true'
     name: Build
     runs-on: macos-latest
@@ -167,6 +184,16 @@ jobs:
         with:
           path: ~/.cargo/git
           key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+      - name: Cache target directory
+        uses: actions/cache@8b402f58fbc84540c8b491a91e594a4576fec3d7 # v5.0.2
+        with:
+          path: target
+          key: ${{ runner.os }}-target-release-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-target-release-
+            ${{ runner.os }}-target-test-
+            ${{ runner.os }}-target-clippy-
+            ${{ runner.os }}-target-
       - name: Build
         run: mise exec -- cargo build --release
         env:
