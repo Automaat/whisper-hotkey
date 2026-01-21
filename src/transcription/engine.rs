@@ -222,6 +222,7 @@ pub struct ModelManager {
     /// Deepgram API key (shared across Deepgram backends)
     deepgram_api_key: Option<String>,
     /// Shared tokio runtime for Deepgram backends
+    #[allow(dead_code)] // TODO: Use when Deepgram API implementation is complete
     deepgram_runtime: Option<Arc<Runtime>>,
 }
 
@@ -244,8 +245,7 @@ impl ModelManager {
     /// Creates new `ModelManager` and preloads models where `profile.preload=true`
     ///
     /// # Errors
-    /// Returns error if any preloaded model fails to load, if Deepgram config is required but missing,
-    /// or if internal invariant violation occurs (`deepgram_api_key` exists but `deepgram_runtime` is None)
+    /// Returns error if any preloaded model fails to load or if Deepgram config is required but missing
     pub fn new(
         profiles: &[crate::config::TranscriptionProfile],
         deepgram_config: Option<&crate::config::DeepgramConfig>,
@@ -266,7 +266,7 @@ impl ModelManager {
         };
 
         for profile in profiles {
-            let profile_name = profile.name().to_owned();
+            let profile_name = profile.name();
 
             match &profile.backend {
                 BackendConfig::Local {
@@ -313,17 +313,11 @@ impl ModelManager {
 
                     if profile.preload {
                         tracing::info!("preloading deepgram backend: {profile_name}");
-                        let runtime = deepgram_runtime.clone().ok_or_else(|| {
-                            anyhow::anyhow!(
-                                "internal error: deepgram_runtime missing when deepgram_api_key exists"
-                            )
-                        })?;
                         let backend = super::deepgram::DeepgramBackend::new(
                             api_key,
                             model.clone(),
                             language.clone(),
                             *smart_format,
-                            runtime,
                         )?;
                         let backend: Arc<dyn super::backend::TranscriptionBackend> =
                             Arc::new(backend);
@@ -355,8 +349,7 @@ impl ModelManager {
     /// Gets backend for profile (preloaded or lazy loads on first use)
     ///
     /// # Errors
-    /// Returns error if profile not found in config, fails to load,
-    /// or if internal invariant violation occurs (`deepgram_api_key` exists but `deepgram_runtime` is None)
+    /// Returns error if profile not found in config or fails to load
     pub fn get_or_load(
         &mut self,
         profile_name: &str,
@@ -400,17 +393,11 @@ impl ModelManager {
                         ))
                     },
                     |api_key| {
-                        let runtime = self.deepgram_runtime.clone().ok_or_else(|| {
-                            anyhow::anyhow!(
-                                "internal error: deepgram_runtime missing when deepgram_api_key exists"
-                            )
-                        })?;
                         super::deepgram::DeepgramBackend::new(
                             api_key,
                             model,
                             language,
                             smart_format,
-                            runtime,
                         )
                         .map(|backend| {
                             Arc::new(backend) as Arc<dyn super::backend::TranscriptionBackend>

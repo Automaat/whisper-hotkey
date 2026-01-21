@@ -162,7 +162,7 @@ async fn main() -> Result<()> {
         anyhow::bail!("no profiles configured (at least one profile required)");
     }
     let app_state = multi_hotkey_manager
-        .profile_state(config.profiles[0].name())
+        .profile_state(&config.profiles[0].name())
         .context("failed to get state for first profile (profile may be misconfigured)")?;
     let mut tray_manager =
         tray::TrayManager::new(&config, app_state).context("failed to create tray icon")?;

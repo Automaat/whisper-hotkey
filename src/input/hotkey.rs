@@ -444,7 +444,7 @@ impl MultiHotkeyManager {
         let mut managers = Vec::new();
 
         for profile in profiles {
-            let model_name = profile.name().to_owned();
+            let model_name = profile.name();
 
             // Get engine if preloaded, None if lazy
             let (engine, lazy_config) = if profile.preload {
