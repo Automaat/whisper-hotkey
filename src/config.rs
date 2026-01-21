@@ -223,7 +223,7 @@ pub struct TranscriptionProfile {
     /// Hotkey configuration (inlined)
     #[serde(flatten)]
     pub hotkey: HotkeyConfig,
-    /// Preload model at startup (Local backend only, ignored for Deepgram)
+    /// Preload backend at startup (Local: model loading, Deepgram: client initialization)
     #[serde(default = "default_preload")]
     pub preload: bool,
 }
@@ -314,11 +314,14 @@ impl<'de> Deserialize<'de> for TranscriptionProfile {
 impl TranscriptionProfile {
     /// Get profile name (explicit name or derived from backend)
     #[must_use]
-    pub fn name(&self) -> String {
-        self.name.clone().unwrap_or_else(|| match &self.backend {
-            BackendConfig::Local { model_type, .. } => model_type.as_str().to_owned(),
-            BackendConfig::Deepgram { model, .. } => model.clone(),
-        })
+    pub fn name(&self) -> &str {
+        self.name.as_ref().map_or_else(
+            || match &self.backend {
+                BackendConfig::Local { model_type, .. } => model_type.as_str(),
+                BackendConfig::Deepgram { model, .. } => model.as_str(),
+            },
+            |name| name.as_str(),
+        )
     }
 
     /// Get model path for this profile (Local backend only)
