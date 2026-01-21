@@ -361,7 +361,7 @@ let icon_size = if scale >= 2.0 { 32 } else { 16 };
 - **Deepgram Cloud (TODO):**
   - REST API for prerecorded audio
   - Models: whisper-large, nova-3
-  - Async bridge: `tokio::Runtime::block_on()` in transcribe()
+  - Planned async bridge: `tokio::Runtime::block_on()` in transcribe() (runtime stored, not yet used)
   - WAV conversion: PCM f32 → WAV bytes via `hound` crate
   - **Status:** Architecture complete, SDK API integration incomplete
   - Returns error until API calls are finalized

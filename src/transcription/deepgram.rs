@@ -23,26 +23,23 @@ impl DeepgramBackend {
     /// Creates new Deepgram backend
     ///
     /// # Errors
-    /// Returns error if runtime creation fails
+    /// Returns error if client creation fails
     pub fn new(
         api_key: &str,
         model: String,
         language: Option<String>,
         smart_format: bool,
+        runtime: Arc<Runtime>,
     ) -> Result<Self, TranscriptionError> {
         let client = deepgram::Deepgram::new(api_key)
             .map_err(|e| TranscriptionError::DeepgramApi(e.to_string()))?;
-
-        let runtime = tokio::runtime::Runtime::new().map_err(|e| {
-            TranscriptionError::AudioConversion(format!("failed to create tokio runtime: {e}"))
-        })?;
 
         Ok(Self {
             client: Arc::new(client),
             model,
             language,
             smart_format,
-            runtime: Arc::new(runtime),
+            runtime,
         })
     }
 
