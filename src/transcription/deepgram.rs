@@ -497,6 +497,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::cast_precision_loss)] // Small integers, no precision loss
     fn test_convert_to_pcm_i16_preserves_order() {
         let samples: Vec<f32> = (0..10).map(|i| i as f32 / 10.0).collect();
         let result = DeepgramBackend::convert_to_pcm_i16(&samples);
@@ -517,8 +518,8 @@ mod tests {
         let runtime = Arc::new(Runtime::new().unwrap());
         let result = DeepgramBackend::new(
             "test_api_key",
-            "nova-2".to_string(),
-            Some("en".to_string()),
+            "nova-2".to_owned(),
+            Some("en".to_owned()),
             true,
             runtime,
         );
@@ -534,7 +535,7 @@ mod tests {
         let runtime = Arc::new(Runtime::new().unwrap());
         let result = DeepgramBackend::new(
             "test_api_key",
-            "whisper-large".to_string(),
+            "whisper-large".to_owned(),
             None, // auto-detect
             false,
             runtime,
@@ -547,7 +548,7 @@ mod tests {
     fn test_send_audio_chunk_no_active_stream() {
         let runtime = Arc::new(Runtime::new().unwrap());
         let backend =
-            DeepgramBackend::new("test_key", "nova-2".to_string(), None, false, runtime).unwrap();
+            DeepgramBackend::new("test_key", "nova-2".to_owned(), None, false, runtime).unwrap();
 
         let result = backend.send_audio_chunk(&[0.0; 100]);
         assert!(result.is_err());
@@ -558,7 +559,7 @@ mod tests {
     fn test_finish_stream_no_active_stream() {
         let runtime = Arc::new(Runtime::new().unwrap());
         let backend =
-            DeepgramBackend::new("test_key", "nova-2".to_string(), None, false, runtime).unwrap();
+            DeepgramBackend::new("test_key", "nova-2".to_owned(), None, false, runtime).unwrap();
 
         let result = backend.finish_stream();
         assert!(result.is_err());

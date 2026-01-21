@@ -86,10 +86,10 @@ mod tests {
     #[test]
     fn test_error_display_model_load() {
         let err = TranscriptionError::ModelLoad {
-            path: "/path/to/model.bin".to_string(),
+            path: "/path/to/model.bin".to_owned(),
             source: anyhow::anyhow!("file not found"),
         };
-        let msg = err.to_string();
+        let msg = format!("{err}");
         assert!(msg.contains("/path/to/model.bin"));
         assert!(msg.contains("file not found"));
     }
@@ -97,31 +97,31 @@ mod tests {
     #[test]
     fn test_error_display_state_creation() {
         let err = TranscriptionError::StateCreation;
-        assert_eq!(err.to_string(), "failed to create whisper state");
+        assert_eq!(format!("{err}"), "failed to create whisper state");
     }
 
     #[test]
     fn test_error_display_transcription() {
         let err = TranscriptionError::Transcription(anyhow::anyhow!("inference failed"));
-        assert!(err.to_string().contains("inference failed"));
+        assert!(format!("{err}").contains("inference failed"));
     }
 
     #[test]
     fn test_error_display_deepgram_api() {
-        let err = TranscriptionError::DeepgramApi("connection timeout".to_string());
-        assert!(err.to_string().contains("connection timeout"));
+        let err = TranscriptionError::DeepgramApi("connection timeout".to_owned());
+        assert!(format!("{err}").contains("connection timeout"));
     }
 
     #[test]
     fn test_error_display_deepgram_config_missing() {
         let err = TranscriptionError::DeepgramConfigMissing;
-        assert!(err.to_string().contains("API key"));
+        assert!(format!("{err}").contains("API key"));
     }
 
     #[test]
     fn test_error_display_streaming_not_supported() {
         let err = TranscriptionError::StreamingNotSupported;
-        assert_eq!(err.to_string(), "streaming not supported by this backend");
+        assert_eq!(format!("{err}"), "streaming not supported by this backend");
     }
 
     // Mock backend for testing default trait implementations
@@ -129,7 +129,7 @@ mod tests {
 
     impl TranscriptionBackend for MockBackend {
         fn transcribe(&self, _audio_data: &[f32]) -> Result<String, TranscriptionError> {
-            Ok("mock transcription".to_string())
+            Ok("mock transcription".to_owned())
         }
 
         fn backend_name(&self) -> &'static str {
