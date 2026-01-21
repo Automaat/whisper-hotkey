@@ -2911,6 +2911,13 @@ key = "X"
             "secret_key_123"
         );
         assert_eq!(deserialized.profiles.len(), 1);
+        assert!(
+            matches!(
+                &deserialized.profiles[0].backend,
+                BackendConfig::Deepgram { .. }
+            ),
+            "Expected Deepgram backend"
+        );
         if let BackendConfig::Deepgram {
             model,
             language,
@@ -2920,8 +2927,6 @@ key = "X"
             assert_eq!(model, "whisper-large");
             assert_eq!(*language, Some("de".to_owned()));
             assert!(!*smart_format);
-        } else {
-            panic!("Expected Deepgram backend");
         }
     }
 
