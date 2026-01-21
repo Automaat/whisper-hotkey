@@ -76,10 +76,10 @@ jobs:
         uses: actions/cache@8b402f58fbc84540c8b491a91e594a4576fec3d7 # v5.0.2
         with:
           path: target
-          key: ${{ runner.os }}-target-clippy-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-target-v2-clippy-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-target-clippy-
-            ${{ runner.os }}-target-
+            ${{ runner.os }}-target-v2-clippy-
+            ${{ runner.os }}-target-v2-
       - name: Install clippy
         run: rustup component add clippy
       - name: Run clippy
@@ -129,11 +129,11 @@ jobs:
         uses: actions/cache@8b402f58fbc84540c8b491a91e594a4576fec3d7 # v5.0.2
         with:
           path: target
-          key: ${{ runner.os }}-target-test-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-target-v2-test-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-target-test-
-            ${{ runner.os }}-target-clippy-
-            ${{ runner.os }}-target-
+            ${{ runner.os }}-target-v2-test-
+            ${{ runner.os }}-target-v2-clippy-
+            ${{ runner.os }}-target-v2-
       - name: Install llvm-tools-preview
         run: rustup component add llvm-tools-preview
       - name: Install cargo-llvm-cov
@@ -188,12 +188,12 @@ jobs:
         uses: actions/cache@8b402f58fbc84540c8b491a91e594a4576fec3d7 # v5.0.2
         with:
           path: target
-          key: ${{ runner.os }}-target-release-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-target-v2-release-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-target-release-
-            ${{ runner.os }}-target-test-
-            ${{ runner.os }}-target-clippy-
-            ${{ runner.os }}-target-
+            ${{ runner.os }}-target-v2-release-
+            ${{ runner.os }}-target-v2-test-
+            ${{ runner.os }}-target-v2-clippy-
+            ${{ runner.os }}-target-v2-
       - name: Build
         run: mise exec -- cargo build --release
         env:
