@@ -3,7 +3,6 @@ use global_hotkey::{
     hotkey::{Code, HotKey, Modifiers},
     GlobalHotKeyEvent, GlobalHotKeyManager,
 };
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tracing::{debug, info, warn};
 
@@ -38,8 +37,6 @@ pub struct HotkeyManager {
     aliases: Arc<AliasesConfig>,
     /// For lazy loading: model manager + model name
     lazy_load_config: Option<LazyLoadConfig>,
-    /// Flag to signal streaming thread to stop
-    streaming_stop: Arc<AtomicBool>,
 }
 
 impl HotkeyManager {
@@ -75,7 +72,6 @@ impl HotkeyManager {
             recording_enabled,
             aliases,
             lazy_load_config,
-            streaming_stop: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -96,9 +92,6 @@ impl HotkeyManager {
                 info!("🎤 Hotkey pressed - recording started");
                 *state = AppState::Recording;
                 drop(state);
-
-                // Reset streaming stop flag
-                self.streaming_stop.store(false, Ordering::Relaxed);
 
                 // Start audio recording with error recovery
                 let recording_result = self
@@ -183,11 +176,6 @@ impl HotkeyManager {
                 info!("⏹️  Hotkey released - processing audio");
                 *state = AppState::Processing;
                 drop(state);
-
-                // Signal streaming sender to stop
-                self.streaming_stop.store(true, Ordering::Relaxed);
-                // Give it a moment to process final chunk
-                std::thread::sleep(std::time::Duration::from_millis(50));
 
                 // Stop audio recording and get remaining samples
                 let stop_result = self

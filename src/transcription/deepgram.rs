@@ -8,6 +8,21 @@ use deepgram::listen::websocket::WebsocketHandle;
 
 use super::backend::{TranscriptionBackend, TranscriptionError};
 
+/// Audio sample rate in Hz (16kHz mono)
+const SAMPLE_RATE: u32 = 16_000;
+
+/// Bytes per audio sample (i16 = 2 bytes)
+const BYTES_PER_SAMPLE: usize = 2;
+
+/// Chunk duration for streaming in milliseconds (250ms for low latency)
+const CHUNK_DURATION_MS: usize = 250;
+
+/// Bytes per streaming chunk: 16kHz * 2 bytes * 250ms = 8000 bytes
+const CHUNK_SIZE_BYTES: usize = SAMPLE_RATE as usize * BYTES_PER_SAMPLE * CHUNK_DURATION_MS / 1000;
+
+/// Buffer capacity for accumulating audio (500ms = 2 chunks)
+const BUFFER_CAPACITY_BYTES: usize = CHUNK_SIZE_BYTES * 2;
+
 /// Active streaming session state
 struct StreamingSession {
     /// Channel to send audio chunks to the streaming task
@@ -108,7 +123,7 @@ impl DeepgramBackend {
                 .transcription()
                 .stream_request_with_options(options)
                 .encoding(Encoding::Linear16)
-                .sample_rate(16000)
+                .sample_rate(SAMPLE_RATE)
                 .channels(1)
                 .no_delay(true)
                 .handle(),
@@ -121,8 +136,8 @@ impl DeepgramBackend {
 
         tracing::debug!("streaming task: websocket connected");
 
-        // Buffer for accumulating audio before sending (send ~250ms chunks = 8000 bytes)
-        let mut buffer: Vec<u8> = Vec::with_capacity(16000);
+        // Buffer for accumulating audio before sending
+        let mut buffer: Vec<u8> = Vec::with_capacity(BUFFER_CAPACITY_BYTES);
         let mut chunks_sent = 0;
         let mut total_bytes: usize = 0;
 
@@ -136,8 +151,8 @@ impl DeepgramBackend {
             total_bytes += pcm_bytes.len();
             buffer.extend(pcm_bytes);
 
-            // Send when buffer reaches ~250ms of audio (8000 bytes at 16kHz 16-bit)
-            if buffer.len() >= 8000 {
+            // Send when buffer reaches chunk threshold
+            if buffer.len() >= CHUNK_SIZE_BYTES {
                 handle
                     .send_data(std::mem::take(&mut buffer))
                     .await
@@ -227,6 +242,10 @@ impl DeepgramBackend {
 }
 
 impl TranscriptionBackend for DeepgramBackend {
+    /// Transcribe audio using Deepgram WebSocket streaming API.
+    ///
+    /// **Note:** This method blocks the calling thread while waiting for the
+    /// transcript result. Use from a background thread or blocking task pool.
     fn transcribe(&self, audio_data: &[f32]) -> Result<String, TranscriptionError> {
         // Batch transcription (fallback if streaming not used)
         let _span =
@@ -317,16 +336,28 @@ impl TranscriptionBackend for DeepgramBackend {
 
     fn send_audio_chunk(&self, audio_data: &[f32]) -> Result<(), TranscriptionError> {
         let audio_tx = {
-            let session_guard = self
+            let mut session_guard = self
                 .streaming_session
                 .lock()
                 .map_err(|_| TranscriptionError::DeepgramApi("session lock poisoned".into()))?;
 
-            session_guard
+            let session = session_guard
                 .as_ref()
-                .ok_or_else(|| TranscriptionError::DeepgramApi("no active stream".into()))?
-                .audio_tx
-                .clone()
+                .ok_or_else(|| TranscriptionError::DeepgramApi("no active stream".into()))?;
+
+            // Check if streaming task has failed/panicked (channel closed)
+            if session.audio_tx.is_closed() {
+                tracing::warn!("streaming task failed, clearing stale session");
+                session_guard.take();
+                drop(session_guard);
+                return Err(TranscriptionError::DeepgramApi(
+                    "streaming task failed".into(),
+                ));
+            }
+
+            let tx = session.audio_tx.clone();
+            drop(session_guard);
+            tx
         };
 
         let pcm_bytes = Self::convert_to_pcm_i16(audio_data);
