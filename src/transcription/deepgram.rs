@@ -411,3 +411,157 @@ impl TranscriptionBackend for DeepgramBackend {
 unsafe impl Send for DeepgramBackend {}
 #[allow(unsafe_code)]
 unsafe impl Sync for DeepgramBackend {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_audio_constants() {
+        // Verify constants are calculated correctly
+        assert_eq!(SAMPLE_RATE, 16_000);
+        assert_eq!(BYTES_PER_SAMPLE, 2);
+        assert_eq!(CHUNK_DURATION_MS, 250);
+        // 16000 samples/sec * 2 bytes/sample * 0.25 sec = 8000 bytes
+        assert_eq!(CHUNK_SIZE_BYTES, 8000);
+        // 2 chunks worth of buffer
+        assert_eq!(BUFFER_CAPACITY_BYTES, 16000);
+    }
+
+    #[test]
+    fn test_convert_to_pcm_i16_empty() {
+        let result = DeepgramBackend::convert_to_pcm_i16(&[]);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_convert_to_pcm_i16_silence() {
+        let silence = vec![0.0_f32; 100];
+        let result = DeepgramBackend::convert_to_pcm_i16(&silence);
+
+        // 100 samples * 2 bytes = 200 bytes
+        assert_eq!(result.len(), 200);
+
+        // All zeros should produce all zero bytes
+        assert!(result.iter().all(|&b| b == 0));
+    }
+
+    #[test]
+    fn test_convert_to_pcm_i16_max_positive() {
+        let max_signal = vec![1.0_f32];
+        let result = DeepgramBackend::convert_to_pcm_i16(&max_signal);
+
+        assert_eq!(result.len(), 2);
+        // i16::MAX = 32767 = 0x7FFF in little-endian: [0xFF, 0x7F]
+        let value = i16::from_le_bytes([result[0], result[1]]);
+        assert_eq!(value, i16::MAX);
+    }
+
+    #[test]
+    fn test_convert_to_pcm_i16_max_negative() {
+        let min_signal = vec![-1.0_f32];
+        let result = DeepgramBackend::convert_to_pcm_i16(&min_signal);
+
+        assert_eq!(result.len(), 2);
+        // -1.0 * 32767 = -32767 (not -32768 due to asymmetry)
+        let value = i16::from_le_bytes([result[0], result[1]]);
+        assert_eq!(value, -i16::MAX);
+    }
+
+    #[test]
+    fn test_convert_to_pcm_i16_clamps_overflow() {
+        // Values outside [-1, 1] should be clamped
+        let overflow = vec![2.0_f32, -2.0_f32];
+        let result = DeepgramBackend::convert_to_pcm_i16(&overflow);
+
+        assert_eq!(result.len(), 4);
+
+        let value1 = i16::from_le_bytes([result[0], result[1]]);
+        let value2 = i16::from_le_bytes([result[2], result[3]]);
+
+        assert_eq!(value1, i16::MAX); // 2.0 clamped to 1.0
+        assert_eq!(value2, -i16::MAX); // -2.0 clamped to -1.0
+    }
+
+    #[test]
+    fn test_convert_to_pcm_i16_half_amplitude() {
+        let half = vec![0.5_f32, -0.5_f32];
+        let result = DeepgramBackend::convert_to_pcm_i16(&half);
+
+        let value1 = i16::from_le_bytes([result[0], result[1]]);
+        let value2 = i16::from_le_bytes([result[2], result[3]]);
+
+        // 0.5 * 32767 ≈ 16383
+        assert!((value1 - 16383).abs() <= 1);
+        assert!((value2 + 16383).abs() <= 1);
+    }
+
+    #[test]
+    fn test_convert_to_pcm_i16_preserves_order() {
+        let samples: Vec<f32> = (0..10).map(|i| i as f32 / 10.0).collect();
+        let result = DeepgramBackend::convert_to_pcm_i16(&samples);
+
+        assert_eq!(result.len(), 20);
+
+        // Verify samples are in order and increasing
+        let mut prev_value = i16::MIN;
+        for i in 0..10 {
+            let value = i16::from_le_bytes([result[i * 2], result[i * 2 + 1]]);
+            assert!(value >= prev_value, "Sample {i} should be >= previous");
+            prev_value = value;
+        }
+    }
+
+    #[test]
+    fn test_backend_new_with_valid_key() {
+        let runtime = Arc::new(Runtime::new().unwrap());
+        let result = DeepgramBackend::new(
+            "test_api_key",
+            "nova-2".to_string(),
+            Some("en".to_string()),
+            true,
+            runtime,
+        );
+
+        assert!(result.is_ok());
+        let backend = result.unwrap();
+        assert_eq!(backend.backend_name(), "deepgram");
+        assert!(backend.supports_streaming());
+    }
+
+    #[test]
+    fn test_backend_new_with_no_language() {
+        let runtime = Arc::new(Runtime::new().unwrap());
+        let result = DeepgramBackend::new(
+            "test_api_key",
+            "whisper-large".to_string(),
+            None, // auto-detect
+            false,
+            runtime,
+        );
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_send_audio_chunk_no_active_stream() {
+        let runtime = Arc::new(Runtime::new().unwrap());
+        let backend =
+            DeepgramBackend::new("test_key", "nova-2".to_string(), None, false, runtime).unwrap();
+
+        let result = backend.send_audio_chunk(&[0.0; 100]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("no active stream"));
+    }
+
+    #[test]
+    fn test_finish_stream_no_active_stream() {
+        let runtime = Arc::new(Runtime::new().unwrap());
+        let backend =
+            DeepgramBackend::new("test_key", "nova-2".to_string(), None, false, runtime).unwrap();
+
+        let result = backend.finish_stream();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("no active stream"));
+    }
+}

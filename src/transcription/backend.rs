@@ -77,3 +77,113 @@ pub trait TranscriptionBackend: Send + Sync {
         Err(TranscriptionError::StreamingNotSupported)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Test error Display implementations
+    #[test]
+    fn test_error_display_model_load() {
+        let err = TranscriptionError::ModelLoad {
+            path: "/path/to/model.bin".to_string(),
+            source: anyhow::anyhow!("file not found"),
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("/path/to/model.bin"));
+        assert!(msg.contains("file not found"));
+    }
+
+    #[test]
+    fn test_error_display_state_creation() {
+        let err = TranscriptionError::StateCreation;
+        assert_eq!(err.to_string(), "failed to create whisper state");
+    }
+
+    #[test]
+    fn test_error_display_transcription() {
+        let err = TranscriptionError::Transcription(anyhow::anyhow!("inference failed"));
+        assert!(err.to_string().contains("inference failed"));
+    }
+
+    #[test]
+    fn test_error_display_deepgram_api() {
+        let err = TranscriptionError::DeepgramApi("connection timeout".to_string());
+        assert!(err.to_string().contains("connection timeout"));
+    }
+
+    #[test]
+    fn test_error_display_deepgram_config_missing() {
+        let err = TranscriptionError::DeepgramConfigMissing;
+        assert!(err.to_string().contains("API key"));
+    }
+
+    #[test]
+    fn test_error_display_streaming_not_supported() {
+        let err = TranscriptionError::StreamingNotSupported;
+        assert_eq!(err.to_string(), "streaming not supported by this backend");
+    }
+
+    // Mock backend for testing default trait implementations
+    struct MockBackend;
+
+    impl TranscriptionBackend for MockBackend {
+        fn transcribe(&self, _audio_data: &[f32]) -> Result<String, TranscriptionError> {
+            Ok("mock transcription".to_string())
+        }
+
+        fn backend_name(&self) -> &'static str {
+            "mock"
+        }
+    }
+
+    #[test]
+    fn test_default_supports_streaming() {
+        let backend = MockBackend;
+        assert!(!backend.supports_streaming());
+    }
+
+    #[test]
+    fn test_default_start_stream() {
+        let backend = MockBackend;
+        let result = backend.start_stream();
+        assert!(matches!(
+            result,
+            Err(TranscriptionError::StreamingNotSupported)
+        ));
+    }
+
+    #[test]
+    fn test_default_send_audio_chunk() {
+        let backend = MockBackend;
+        let result = backend.send_audio_chunk(&[0.0; 100]);
+        assert!(matches!(
+            result,
+            Err(TranscriptionError::StreamingNotSupported)
+        ));
+    }
+
+    #[test]
+    fn test_default_finish_stream() {
+        let backend = MockBackend;
+        let result = backend.finish_stream();
+        assert!(matches!(
+            result,
+            Err(TranscriptionError::StreamingNotSupported)
+        ));
+    }
+
+    #[test]
+    fn test_mock_backend_transcribe() {
+        let backend = MockBackend;
+        let result = backend.transcribe(&[0.0; 100]);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "mock transcription");
+    }
+
+    #[test]
+    fn test_mock_backend_name() {
+        let backend = MockBackend;
+        assert_eq!(backend.backend_name(), "mock");
+    }
+}
