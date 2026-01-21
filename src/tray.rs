@@ -314,20 +314,24 @@ mod tests {
 
     fn create_test_config() -> Config {
         use crate::config::{
-            AliasesConfig, AudioConfig, HotkeyConfig, ModelConfig, RecordingConfig, TelemetryConfig,
+            AliasesConfig, AudioConfig, BackendConfig, HotkeyConfig, ModelConfig, RecordingConfig,
+            TelemetryConfig,
         };
         Config {
+            deepgram: None,
             profiles: vec![crate::config::TranscriptionProfile {
                 name: None,
-                model_type: ModelType::Small,
+                backend: BackendConfig::Local {
+                    model_type: ModelType::Small,
+                    threads: 4,
+                    beam_size: 5,
+                    language: None,
+                },
                 hotkey: HotkeyConfig {
                     modifiers: vec!["Control".to_owned(), "Option".to_owned()],
                     key: "Z".to_owned(),
                 },
                 preload: true,
-                threads: 4,
-                beam_size: 5,
-                language: None,
             }],
             hotkey: HotkeyConfig {
                 modifiers: vec!["Control".to_owned(), "Option".to_owned()],
@@ -357,15 +361,17 @@ mod tests {
     fn test_format_profile_label_derived_name() {
         let profile = crate::config::TranscriptionProfile {
             name: None,
-            model_type: ModelType::Small,
+            backend: crate::config::BackendConfig::Local {
+                model_type: ModelType::Small,
+                threads: 4,
+                beam_size: 5,
+                language: None,
+            },
             hotkey: crate::config::HotkeyConfig {
                 modifiers: vec!["Control".to_owned(), "Option".to_owned()],
                 key: "Z".to_owned(),
             },
             preload: true,
-            threads: 4,
-            beam_size: 5,
-            language: None,
         };
         let label = TrayManager::format_profile_label(&profile);
         assert_eq!(label, "small (Control+Option+Z): small");
@@ -375,15 +381,17 @@ mod tests {
     fn test_format_profile_label_explicit_name() {
         let profile = crate::config::TranscriptionProfile {
             name: Some("Custom Name".to_owned()),
-            model_type: ModelType::BaseEn,
+            backend: crate::config::BackendConfig::Local {
+                model_type: ModelType::BaseEn,
+                threads: 2,
+                beam_size: 3,
+                language: Some("en".to_owned()),
+            },
             hotkey: crate::config::HotkeyConfig {
                 modifiers: vec!["Command".to_owned(), "Shift".to_owned()],
                 key: "V".to_owned(),
             },
             preload: false,
-            threads: 2,
-            beam_size: 3,
-            language: Some("en".to_owned()),
         };
         let label = TrayManager::format_profile_label(&profile);
         assert_eq!(label, "Custom Name (Command+Shift+V): base.en");
@@ -393,15 +401,17 @@ mod tests {
     fn test_format_profile_label_no_modifiers() {
         let profile = crate::config::TranscriptionProfile {
             name: Some("Quick".to_owned()),
-            model_type: ModelType::Tiny,
+            backend: crate::config::BackendConfig::Local {
+                model_type: ModelType::Tiny,
+                threads: 1,
+                beam_size: 1,
+                language: None,
+            },
             hotkey: crate::config::HotkeyConfig {
                 modifiers: vec![],
                 key: "F1".to_owned(),
             },
             preload: true,
-            threads: 1,
-            beam_size: 1,
-            language: None,
         };
         let label = TrayManager::format_profile_label(&profile);
         assert_eq!(label, "Quick (F1): tiny");
@@ -422,15 +432,17 @@ mod tests {
         for (model_type, expected_name) in models {
             let profile = crate::config::TranscriptionProfile {
                 name: None,
-                model_type,
+                backend: crate::config::BackendConfig::Local {
+                    model_type,
+                    threads: 4,
+                    beam_size: 5,
+                    language: None,
+                },
                 hotkey: crate::config::HotkeyConfig {
                     modifiers: vec!["Command".to_owned()],
                     key: "A".to_owned(),
                 },
                 preload: true,
-                threads: 4,
-                beam_size: 5,
-                language: None,
             };
             let label = TrayManager::format_profile_label(&profile);
             assert_eq!(

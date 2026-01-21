@@ -1271,6 +1271,7 @@ log_path = "/test/log.txt"
 
         // Test with non-default values - should serialize them
         let config = Config {
+            deepgram: None,
             profiles: default_profiles(),
             hotkey: HotkeyConfig {
                 modifiers: vec!["Command".to_owned()],
@@ -1309,6 +1310,7 @@ log_path = "/test/log.txt"
     #[test]
     fn test_config_roundtrip() {
         let original = Config {
+            deepgram: None,
             profiles: default_profiles(),
             hotkey: HotkeyConfig {
                 modifiers: vec!["Command".to_owned()],
@@ -1594,6 +1596,7 @@ log_path = "/custom/log.txt"
         env::set_var("HOME", test_dir.to_str().unwrap());
 
         let config = Config {
+            deepgram: None,
             profiles: default_profiles(),
             hotkey: HotkeyConfig {
                 modifiers: vec!["Command".to_owned()],
@@ -1975,12 +1978,14 @@ cleanup_interval_hours = 1
     fn test_transcription_profile_name_explicit() {
         let profile = TranscriptionProfile {
             name: Some("custom-name".to_owned()),
-            model_type: ModelType::BaseEn,
+            backend: BackendConfig::Local {
+                model_type: ModelType::BaseEn,
+                threads: 4,
+                beam_size: 1,
+                language: Some("en".to_owned()),
+            },
             hotkey: HotkeyConfig::default(),
             preload: true,
-            threads: 4,
-            beam_size: 1,
-            language: Some("en".to_owned()),
         };
         assert_eq!(profile.name(), "custom-name");
     }
@@ -1989,12 +1994,14 @@ cleanup_interval_hours = 1
     fn test_transcription_profile_name_derived() {
         let profile = TranscriptionProfile {
             name: None,
-            model_type: ModelType::Small,
+            backend: BackendConfig::Local {
+                model_type: ModelType::Small,
+                threads: 4,
+                beam_size: 1,
+                language: Some("en".to_owned()),
+            },
             hotkey: HotkeyConfig::default(),
             preload: true,
-            threads: 4,
-            beam_size: 1,
-            language: Some("en".to_owned()),
         };
         assert_eq!(profile.name(), "small");
     }
@@ -2003,16 +2010,18 @@ cleanup_interval_hours = 1
     fn test_transcription_profile_model_path() {
         let profile = TranscriptionProfile {
             name: None,
-            model_type: ModelType::BaseEn,
+            backend: BackendConfig::Local {
+                model_type: ModelType::BaseEn,
+                threads: 4,
+                beam_size: 1,
+                language: Some("en".to_owned()),
+            },
             hotkey: HotkeyConfig::default(),
             preload: true,
-            threads: 4,
-            beam_size: 1,
-            language: Some("en".to_owned()),
         };
         let path = profile.model_path();
-        assert!(path.contains("base.en"));
-        assert!(path.contains(".whisper-hotkey/models"));
+        assert!(path.as_ref().unwrap().contains("base.en"));
+        assert!(path.unwrap().contains(".whisper-hotkey/models"));
     }
 
     #[test]
@@ -2026,24 +2035,28 @@ cleanup_interval_hours = 1
         let profiles = vec![
             TranscriptionProfile {
                 name: None,
-                model_type: ModelType::BaseEn,
+                backend: BackendConfig::Local {
+                    model_type: ModelType::BaseEn,
+                    threads: 4,
+                    beam_size: 1,
+                    language: Some("en".to_owned()),
+                },
                 hotkey: HotkeyConfig::default(),
                 preload: true,
-                threads: 4,
-                beam_size: 1,
-                language: Some("en".to_owned()),
             },
             TranscriptionProfile {
                 name: None,
-                model_type: ModelType::Small,
+                backend: BackendConfig::Local {
+                    model_type: ModelType::Small,
+                    threads: 4,
+                    beam_size: 1,
+                    language: Some("en".to_owned()),
+                },
                 hotkey: HotkeyConfig {
                     modifiers: vec!["Shift".to_owned()],
                     key: "X".to_owned(),
                 },
                 preload: true,
-                threads: 4,
-                beam_size: 1,
-                language: Some("en".to_owned()),
             },
         ];
         assert!(!is_default_profiles(&profiles));
@@ -2053,12 +2066,14 @@ cleanup_interval_hours = 1
     fn test_is_default_profiles_false_custom() {
         let profiles = vec![TranscriptionProfile {
             name: Some("custom".to_owned()),
-            model_type: ModelType::BaseEn,
+            backend: BackendConfig::Local {
+                model_type: ModelType::BaseEn,
+                threads: 4,
+                beam_size: 1,
+                language: Some("en".to_owned()),
+            },
             hotkey: HotkeyConfig::default(),
             preload: true,
-            threads: 4,
-            beam_size: 1,
-            language: Some("en".to_owned()),
         }];
         assert!(!is_default_profiles(&profiles));
     }
@@ -2066,6 +2081,7 @@ cleanup_interval_hours = 1
     #[test]
     fn test_config_migrate_to_profiles() {
         let mut config = Config {
+            deepgram: None,
             profiles: vec![],
             hotkey: HotkeyConfig {
                 modifiers: vec!["Command".to_owned(), "Shift".to_owned()],
@@ -2087,10 +2103,22 @@ cleanup_interval_hours = 1
         config.migrate_to_profiles();
 
         assert_eq!(config.profiles.len(), 1);
-        assert_eq!(config.profiles[0].model_type, ModelType::Small);
-        assert_eq!(config.profiles[0].threads, 8);
-        assert_eq!(config.profiles[0].beam_size, 5);
-        assert_eq!(config.profiles[0].language, Some("es".to_owned()));
+        assert!(
+            matches!(&config.profiles[0].backend, BackendConfig::Local { .. }),
+            "expected Local backend"
+        );
+        if let BackendConfig::Local {
+            model_type,
+            threads,
+            beam_size,
+            language,
+        } = &config.profiles[0].backend
+        {
+            assert_eq!(*model_type, ModelType::Small);
+            assert_eq!(*threads, 8);
+            assert_eq!(*beam_size, 5);
+            assert_eq!(*language, Some("es".to_owned()));
+        }
         assert_eq!(config.profiles[0].hotkey.key, "V");
         assert_eq!(config.profiles[0].hotkey.modifiers.len(), 2);
     }
@@ -2098,17 +2126,20 @@ cleanup_interval_hours = 1
     #[test]
     fn test_config_migrate_to_profiles_noop_if_profiles_exist() {
         let mut config = Config {
+            deepgram: None,
             profiles: vec![TranscriptionProfile {
                 name: Some("existing".to_owned()),
-                model_type: ModelType::Tiny,
+                backend: BackendConfig::Local {
+                    model_type: ModelType::Tiny,
+                    threads: 2,
+                    beam_size: 3,
+                    language: Some("fr".to_owned()),
+                },
                 hotkey: HotkeyConfig {
                     modifiers: vec!["Alt".to_owned()],
                     key: "Q".to_owned(),
                 },
                 preload: true,
-                threads: 2,
-                beam_size: 3,
-                language: Some("fr".to_owned()),
             }],
             hotkey: HotkeyConfig {
                 modifiers: vec!["Command".to_owned()],
@@ -2132,20 +2163,27 @@ cleanup_interval_hours = 1
         // Should not change existing profiles
         assert_eq!(config.profiles.len(), 1);
         assert_eq!(config.profiles[0].name, Some("existing".to_owned()));
-        assert_eq!(config.profiles[0].model_type, ModelType::Tiny);
+        assert!(
+            matches!(&config.profiles[0].backend, BackendConfig::Local { .. }),
+            "expected Local backend"
+        );
+        assert_eq!(config.profiles[0].model_type(), Some(ModelType::Tiny));
     }
 
     #[test]
     fn test_config_ensure_unique_names_single_profile() {
         let mut config = Config {
+            deepgram: None,
             profiles: vec![TranscriptionProfile {
                 name: None,
-                model_type: ModelType::BaseEn,
+                backend: BackendConfig::Local {
+                    model_type: ModelType::BaseEn,
+                    threads: 4,
+                    beam_size: 1,
+                    language: Some("en".to_owned()),
+                },
                 hotkey: HotkeyConfig::default(),
                 preload: true,
-                threads: 4,
-                beam_size: 1,
-                language: Some("en".to_owned()),
             }],
             hotkey: HotkeyConfig::default(),
             audio: AudioConfig::default(),
@@ -2164,42 +2202,49 @@ cleanup_interval_hours = 1
     #[test]
     fn test_config_ensure_unique_names_duplicates() {
         let mut config = Config {
+            deepgram: None,
             profiles: vec![
                 TranscriptionProfile {
                     name: None,
-                    model_type: ModelType::BaseEn,
+                    backend: BackendConfig::Local {
+                        model_type: ModelType::BaseEn,
+                        threads: 4,
+                        beam_size: 1,
+                        language: Some("en".to_owned()),
+                    },
                     hotkey: HotkeyConfig {
                         modifiers: vec!["Command".to_owned()],
                         key: "A".to_owned(),
                     },
                     preload: true,
-                    threads: 4,
-                    beam_size: 1,
-                    language: Some("en".to_owned()),
                 },
                 TranscriptionProfile {
                     name: None,
-                    model_type: ModelType::BaseEn,
+                    backend: BackendConfig::Local {
+                        model_type: ModelType::BaseEn,
+                        threads: 4,
+                        beam_size: 1,
+                        language: Some("en".to_owned()),
+                    },
                     hotkey: HotkeyConfig {
                         modifiers: vec!["Command".to_owned()],
                         key: "B".to_owned(),
                     },
                     preload: true,
-                    threads: 4,
-                    beam_size: 1,
-                    language: Some("en".to_owned()),
                 },
                 TranscriptionProfile {
                     name: None,
-                    model_type: ModelType::Small,
+                    backend: BackendConfig::Local {
+                        model_type: ModelType::Small,
+                        threads: 4,
+                        beam_size: 1,
+                        language: Some("en".to_owned()),
+                    },
                     hotkey: HotkeyConfig {
                         modifiers: vec!["Command".to_owned()],
                         key: "C".to_owned(),
                     },
                     preload: true,
-                    threads: 4,
-                    beam_size: 1,
-                    language: Some("en".to_owned()),
                 },
             ],
             hotkey: HotkeyConfig::default(),
@@ -2222,30 +2267,35 @@ cleanup_interval_hours = 1
     #[test]
     fn test_config_ensure_unique_names_preserves_explicit() {
         let mut config = Config {
+            deepgram: None,
             profiles: vec![
                 TranscriptionProfile {
                     name: Some("custom-1".to_owned()),
-                    model_type: ModelType::BaseEn,
+                    backend: BackendConfig::Local {
+                        model_type: ModelType::BaseEn,
+                        threads: 4,
+                        beam_size: 1,
+                        language: Some("en".to_owned()),
+                    },
                     hotkey: HotkeyConfig {
                         modifiers: vec!["Command".to_owned()],
                         key: "A".to_owned(),
                     },
                     preload: true,
-                    threads: 4,
-                    beam_size: 1,
-                    language: Some("en".to_owned()),
                 },
                 TranscriptionProfile {
                     name: None,
-                    model_type: ModelType::BaseEn,
+                    backend: BackendConfig::Local {
+                        model_type: ModelType::BaseEn,
+                        threads: 4,
+                        beam_size: 1,
+                        language: Some("en".to_owned()),
+                    },
                     hotkey: HotkeyConfig {
                         modifiers: vec!["Command".to_owned()],
                         key: "B".to_owned(),
                     },
                     preload: true,
-                    threads: 4,
-                    beam_size: 1,
-                    language: Some("en".to_owned()),
                 },
             ],
             hotkey: HotkeyConfig::default(),
@@ -2267,30 +2317,35 @@ cleanup_interval_hours = 1
     #[test]
     fn test_config_validate_hotkeys_no_duplicates() {
         let config = Config {
+            deepgram: None,
             profiles: vec![
                 TranscriptionProfile {
                     name: None,
-                    model_type: ModelType::BaseEn,
+                    backend: BackendConfig::Local {
+                        model_type: ModelType::BaseEn,
+                        threads: 4,
+                        beam_size: 1,
+                        language: Some("en".to_owned()),
+                    },
                     hotkey: HotkeyConfig {
                         modifiers: vec!["Command".to_owned(), "Shift".to_owned()],
                         key: "A".to_owned(),
                     },
                     preload: true,
-                    threads: 4,
-                    beam_size: 1,
-                    language: Some("en".to_owned()),
                 },
                 TranscriptionProfile {
                     name: None,
-                    model_type: ModelType::Small,
+                    backend: BackendConfig::Local {
+                        model_type: ModelType::Small,
+                        threads: 4,
+                        beam_size: 1,
+                        language: Some("en".to_owned()),
+                    },
                     hotkey: HotkeyConfig {
                         modifiers: vec!["Command".to_owned(), "Option".to_owned()],
                         key: "B".to_owned(),
                     },
                     preload: true,
-                    threads: 4,
-                    beam_size: 1,
-                    language: Some("en".to_owned()),
                 },
             ],
             hotkey: HotkeyConfig::default(),
@@ -2307,30 +2362,35 @@ cleanup_interval_hours = 1
     #[test]
     fn test_config_validate_hotkeys_duplicate_exact() {
         let config = Config {
+            deepgram: None,
             profiles: vec![
                 TranscriptionProfile {
                     name: Some("profile-1".to_owned()),
-                    model_type: ModelType::BaseEn,
+                    backend: BackendConfig::Local {
+                        model_type: ModelType::BaseEn,
+                        threads: 4,
+                        beam_size: 1,
+                        language: Some("en".to_owned()),
+                    },
                     hotkey: HotkeyConfig {
                         modifiers: vec!["Command".to_owned(), "Shift".to_owned()],
                         key: "A".to_owned(),
                     },
                     preload: true,
-                    threads: 4,
-                    beam_size: 1,
-                    language: Some("en".to_owned()),
                 },
                 TranscriptionProfile {
                     name: Some("profile-2".to_owned()),
-                    model_type: ModelType::Small,
+                    backend: BackendConfig::Local {
+                        model_type: ModelType::Small,
+                        threads: 4,
+                        beam_size: 1,
+                        language: Some("en".to_owned()),
+                    },
                     hotkey: HotkeyConfig {
                         modifiers: vec!["Command".to_owned(), "Shift".to_owned()],
                         key: "A".to_owned(),
                     },
                     preload: true,
-                    threads: 4,
-                    beam_size: 1,
-                    language: Some("en".to_owned()),
                 },
             ],
             hotkey: HotkeyConfig::default(),
@@ -2351,30 +2411,35 @@ cleanup_interval_hours = 1
     #[test]
     fn test_config_validate_hotkeys_duplicate_order_independent() {
         let config = Config {
+            deepgram: None,
             profiles: vec![
                 TranscriptionProfile {
                     name: Some("profile-1".to_owned()),
-                    model_type: ModelType::BaseEn,
+                    backend: BackendConfig::Local {
+                        model_type: ModelType::BaseEn,
+                        threads: 4,
+                        beam_size: 1,
+                        language: Some("en".to_owned()),
+                    },
                     hotkey: HotkeyConfig {
                         modifiers: vec!["Command".to_owned(), "Shift".to_owned()],
                         key: "A".to_owned(),
                     },
                     preload: true,
-                    threads: 4,
-                    beam_size: 1,
-                    language: Some("en".to_owned()),
                 },
                 TranscriptionProfile {
                     name: Some("profile-2".to_owned()),
-                    model_type: ModelType::Small,
+                    backend: BackendConfig::Local {
+                        model_type: ModelType::Small,
+                        threads: 4,
+                        beam_size: 1,
+                        language: Some("en".to_owned()),
+                    },
                     hotkey: HotkeyConfig {
                         modifiers: vec!["Shift".to_owned(), "Command".to_owned()],
                         key: "A".to_owned(),
                     },
                     preload: true,
-                    threads: 4,
-                    beam_size: 1,
-                    language: Some("en".to_owned()),
                 },
             ],
             hotkey: HotkeyConfig::default(),
@@ -2395,12 +2460,24 @@ cleanup_interval_hours = 1
     fn test_default_profiles_creates_single_profile() {
         let profiles = default_profiles();
         assert_eq!(profiles.len(), 1);
-        assert_eq!(profiles[0].model_type, ModelType::BaseEn);
+        assert!(
+            matches!(&profiles[0].backend, BackendConfig::Local { .. }),
+            "expected Local backend"
+        );
+        if let BackendConfig::Local {
+            model_type,
+            threads,
+            beam_size,
+            language,
+        } = &profiles[0].backend
+        {
+            assert_eq!(*model_type, ModelType::BaseEn);
+            assert_eq!(*threads, 4);
+            assert_eq!(*beam_size, 1);
+            assert_eq!(*language, Some("en".to_owned()));
+        }
         assert_eq!(profiles[0].name, None);
         assert!(profiles[0].preload);
-        assert_eq!(profiles[0].threads, 4);
-        assert_eq!(profiles[0].beam_size, 1);
-        assert_eq!(profiles[0].language, Some("en".to_owned()));
     }
 
     #[test]
@@ -2427,17 +2504,29 @@ language = "es"
 "#;
         let config: Config = toml::from_str(toml).unwrap();
         assert_eq!(config.profiles.len(), 2);
-        assert_eq!(config.profiles[0].model_type, ModelType::Small);
-        assert_eq!(config.profiles[0].threads, 8);
+        assert_eq!(config.profiles[0].model_type(), Some(ModelType::Small));
+        assert!(
+            matches!(&config.profiles[0].backend, BackendConfig::Local { .. }),
+            "expected Local backend"
+        );
+        if let BackendConfig::Local { threads, .. } = &config.profiles[0].backend {
+            assert_eq!(*threads, 8);
+        }
         assert_eq!(config.profiles[1].name, Some("spanish-tiny".to_owned()));
-        assert_eq!(config.profiles[1].model_type, ModelType::Tiny);
-        assert_eq!(config.profiles[1].language, Some("es".to_owned()));
+        assert_eq!(config.profiles[1].model_type(), Some(ModelType::Tiny));
+        assert!(
+            matches!(&config.profiles[1].backend, BackendConfig::Local { .. }),
+            "expected Local backend"
+        );
+        if let BackendConfig::Local { language, .. } = &config.profiles[1].backend {
+            assert_eq!(*language, Some("es".to_owned()));
+        }
     }
 
     #[test]
     fn test_config_default_has_one_profile() {
         let config = Config::default();
         assert_eq!(config.profiles.len(), 1);
-        assert_eq!(config.profiles[0].model_type, ModelType::BaseEn);
+        assert_eq!(config.profiles[0].model_type(), Some(ModelType::BaseEn));
     }
 }

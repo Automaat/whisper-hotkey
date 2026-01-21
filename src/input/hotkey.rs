@@ -694,7 +694,7 @@ mod tests {
     // Phase 2: Mock-based state machine tests
     mod mock_tests {
         use super::*;
-        use crate::transcription::engine::TranscriptionError;
+        use crate::transcription::backend::TranscriptionError;
         use mockall::mock;
         use mockall::predicate::*;
 
