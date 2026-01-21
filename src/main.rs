@@ -87,33 +87,46 @@ async fn main() -> Result<()> {
         config.profiles.len()
     );
     for profile in &config.profiles {
-        let model_path = config::Config::expand_path(&profile.model_path())
-            .context("failed to expand model path")?;
-        let downloaded =
-            transcription::ensure_model_downloaded(profile.model_type.model_name(), &model_path)
-                .with_context(|| {
-                    format!(
-                        "failed to download/verify model for profile {}",
-                        profile.name()
-                    )
-                })?;
-        if downloaded {
-            println!(
-                "  ✓ {} downloaded to {}",
-                profile.name(),
-                model_path.display()
-            );
-            tracing::info!(
-                profile = %profile.name(),
-                path = %model_path.display(),
-                "model downloaded"
-            );
+        // Only download for Local backends
+        if let Some(model_type) = profile.model_type() {
+            let Some(model_path_str) = profile.model_path() else {
+                continue; // Should never happen if model_type() is Some
+            };
+            let model_path = config::Config::expand_path(&model_path_str)
+                .context("failed to expand model path")?;
+            let downloaded =
+                transcription::ensure_model_downloaded(model_type.model_name(), &model_path)
+                    .with_context(|| {
+                        format!(
+                            "failed to download/verify model for profile {}",
+                            profile.name()
+                        )
+                    })?;
+            if downloaded {
+                println!(
+                    "  ✓ {} downloaded to {}",
+                    profile.name(),
+                    model_path.display()
+                );
+                tracing::info!(
+                    profile = %profile.name(),
+                    path = %model_path.display(),
+                    "model downloaded"
+                );
+            } else {
+                println!("  ✓ {} found at {}", profile.name(), model_path.display());
+                tracing::info!(
+                    profile = %profile.name(),
+                    path = %model_path.display(),
+                    "model found"
+                );
+            }
         } else {
-            println!("  ✓ {} found at {}", profile.name(), model_path.display());
+            // Deepgram backend - no model download needed
+            println!("  ✓ {} (cloud backend, no download needed)", profile.name());
             tracing::info!(
                 profile = %profile.name(),
-                path = %model_path.display(),
-                "model found"
+                "cloud backend profile"
             );
         }
     }
@@ -135,6 +148,7 @@ async fn main() -> Result<()> {
     // Clone necessary: config.aliases needed in Arc, but config borrowed later by tray manager
     let multi_hotkey_manager = input::hotkey::MultiHotkeyManager::new(
         &config.profiles,
+        config.deepgram.as_ref(),
         Arc::clone(&audio_capture),
         config.recording.enabled,
         &Arc::new(config.aliases.clone()),
@@ -148,7 +162,7 @@ async fn main() -> Result<()> {
         anyhow::bail!("no profiles configured (at least one profile required)");
     }
     let app_state = multi_hotkey_manager
-        .profile_state(config.profiles[0].name())
+        .profile_state(&config.profiles[0].name())
         .context("failed to get state for first profile (profile may be misconfigured)")?;
     let mut tray_manager =
         tray::TrayManager::new(&config, app_state).context("failed to create tray icon")?;

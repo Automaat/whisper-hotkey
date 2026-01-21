@@ -33,27 +33,58 @@ src/
 
 **Config:** `~/.whisper-hotkey/config.toml`
 ```toml
-# Multi-profile support - each profile has its own hotkey and model
+# Multi-profile support - each profile has its own hotkey and backend (local or cloud)
+
+# Deepgram API key (shared across all Deepgram profiles)
+[deepgram]
+api_key = "YOUR_DEEPGRAM_API_KEY"  # Get from https://console.deepgram.com
+
+# Local Whisper profile (offline, free)
 [[profiles]]
 name = "Fast"
+backend = "local"
 model_type = "small"
-[profiles.hotkey]
-modifiers = ["Control", "Option"]
-key = "Z"
 preload = true
 threads = 4
 beam_size = 1
 language = "en"
+[profiles.hotkey]
+modifiers = ["Control", "Option"]
+key = "Z"
 
+# Another local profile
 [[profiles]]
 name = "Accurate"
+backend = "local"
 model_type = "medium"
-[profiles.hotkey]
-modifiers = ["Command", "Shift"]
-key = "V"
 threads = 4
 beam_size = 5
 language = "en"
+[profiles.hotkey]
+modifiers = ["Command", "Shift"]
+key = "V"
+
+# Deepgram Whisper profile (cloud, paid, faster)
+[[profiles]]
+name = "Deepgram Whisper"
+backend = "deepgram"
+model = "whisper-large"
+language = "en"
+smart_format = true
+[profiles.hotkey]
+modifiers = ["Command", "Option"]
+key = "D"
+
+# Deepgram Nova profile (fastest, most accurate)
+[[profiles]]
+name = "Deepgram Nova"
+backend = "deepgram"
+model = "nova-3"
+language = "en"
+smart_format = true
+[profiles.hotkey]
+modifiers = ["Command", "Option", "Shift"]
+key = "N"
 
 [audio]
 sample_rate = 16000
@@ -75,6 +106,20 @@ threshold = 0.85  # Fuzzy match threshold (0.0-1.0)
 "my email" = "user@example.com"
 "my address" = "123 Main St, City, State 12345"
 ```
+
+**Backend Selection:**
+- `backend = "local"` - Local Whisper (offline, free, CPU-bound)
+  - Requires `model_type`, `threads`, `beam_size`, `language`
+  - Models auto-downloaded on first use
+  - Preload option available for faster first transcription
+- `backend = "deepgram"` - Cloud API (online, paid, faster)
+  - Requires `[deepgram]` section with `api_key`
+  - Specify `model` (e.g., "whisper-large", "nova-3")
+  - `smart_format` enables punctuation/capitalization
+  - No preloading (cloud service)
+  - Pricing: ~$0.0043-0.0048/min ([deepgram.com/pricing](https://deepgram.com/pricing))
+
+**Backward Compatibility:** Profiles without `backend` field migrate to `backend = "local"` automatically.
 
 ---
 
@@ -306,12 +351,20 @@ let icon_size = if scale >= 2.0 { 32 } else { 16 };
 
 ## Project-Specific Context
 
-**Whisper:**
-- GGML format (quantized CPU inference)
-- small = default (good speed/accuracy balance)
-- Multi-profile support: different models per hotkey
-- Preload at startup (2-3s load = critical, NOT per-transcription)
-- Synchronous, thread-safe (`Arc`), NO async
+**Transcription Backends:**
+- **Local Whisper:**
+  - GGML format (quantized CPU inference)
+  - small = default (good speed/accuracy balance)
+  - Multi-profile support: different models per hotkey
+  - Preload at startup (2-3s load = critical, NOT per-transcription)
+  - Synchronous, thread-safe (`Arc`), NO async
+- **Deepgram Cloud (TODO):**
+  - REST API for prerecorded audio
+  - Models: whisper-large, nova-3
+  - Async bridge: `tokio::Runtime::block_on()` in transcribe()
+  - WAV conversion: PCM f32 → WAV bytes via `hound` crate
+  - **Status:** Architecture complete, SDK API integration incomplete
+  - Returns error until API calls are finalized
 
 **Audio:**
 - cpal for cross-platform audio input
@@ -346,10 +399,12 @@ let icon_size = if scale >= 2.0 { 32 } else { 16 };
 
 **Integration:**
 - whisper-rs: Blocking, thread-safe, run in blocking pool
+- deepgram: Cloud transcription API (v0.7, async, requires research for correct usage)
 - global-hotkey: Event-based callback, requires NSApplication
 - cpal: Audio capture (simpler than CoreAudio FFI)
 - tray-icon: Menubar integration
 - strsim: Fuzzy matching for aliases
+- hound: WAV encoding for Deepgram audio format
 
 ---
 

@@ -112,6 +112,48 @@ impl Default for ModelType {
     }
 }
 
+/// Deepgram API configuration
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct DeepgramConfig {
+    /// API key for Deepgram service
+    pub api_key: String,
+}
+
+/// Backend configuration for transcription
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(tag = "backend", rename_all = "lowercase")]
+pub enum BackendConfig {
+    /// Local Whisper model (offline, free)
+    Local {
+        /// Model type (e.g., "small", "base.en")
+        model_type: ModelType,
+        /// Number of CPU threads for inference
+        #[serde(default = "default_threads")]
+        threads: usize,
+        /// Beam search width (higher = slower but more accurate)
+        #[serde(default = "default_beam_size")]
+        beam_size: usize,
+        /// Language code (None = auto-detect)
+        #[serde(default = "default_language")]
+        language: Option<String>,
+    },
+    /// Deepgram cloud API (online, paid, faster)
+    Deepgram {
+        /// Model name (e.g., "whisper-large", "nova-3")
+        model: String,
+        /// Language code (None = auto-detect)
+        #[serde(default)]
+        language: Option<String>,
+        /// Enable Deepgram's smart formatting (punctuation, etc.)
+        #[serde(default = "default_smart_format")]
+        smart_format: bool,
+    },
+}
+
+const fn default_smart_format() -> bool {
+    true
+}
+
 // Helper functions for skip_serializing_if
 fn is_default_hotkey(val: &HotkeyConfig) -> bool {
     val.modifiers.len() == 2
@@ -156,58 +198,154 @@ fn is_default_profiles(val: &[TranscriptionProfile]) -> bool {
     }
     let profile = &val[0];
     profile.name.is_none()
-        && profile.model_type == ModelType::BaseEn
+        && matches!(
+            &profile.backend,
+            BackendConfig::Local {
+                model_type: ModelType::BaseEn,
+                threads: 4,
+                beam_size: 1,
+                language: Some(lang)
+            } if lang == "en"
+        )
         && is_default_hotkey(&profile.hotkey)
         && profile.preload
-        && profile.threads == 4
-        && profile.beam_size == 1
-        && profile.language.as_deref() == Some("en")
 }
 
-/// Transcription profile combining hotkey and model configuration
-#[derive(Debug, Clone, Deserialize, Serialize)]
+/// Transcription profile combining hotkey and backend configuration
+#[derive(Debug, Clone, Serialize)]
 pub struct TranscriptionProfile {
-    /// Optional explicit profile name (auto-generated if multiple profiles share same `model_type`)
+    /// Optional explicit profile name (auto-generated if multiple profiles share same backend)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
-    /// Model type (e.g., "base.en", "small", "tiny")
-    pub model_type: ModelType,
+    /// Backend configuration (flattened into profile)
+    #[serde(flatten)]
+    pub backend: BackendConfig,
     /// Hotkey configuration (inlined)
     #[serde(flatten)]
     pub hotkey: HotkeyConfig,
-    /// Preload model at startup
+    /// Preload model at startup (Local backend only, ignored for Deepgram)
     #[serde(default = "default_preload")]
     pub preload: bool,
-    /// Number of CPU threads for inference
+}
+
+// Helper struct for deserializing old format (pre-backend enum)
+#[derive(Deserialize)]
+struct TranscriptionProfileHelper {
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    backend: Option<String>,
+    // Old format fields (Local backend)
+    #[serde(default)]
+    model_type: Option<ModelType>,
     #[serde(default = "default_threads")]
-    pub threads: usize,
-    /// Beam search width (higher = slower but more accurate)
+    threads: usize,
     #[serde(default = "default_beam_size")]
-    pub beam_size: usize,
-    /// Language code (None = auto-detect)
+    beam_size: usize,
     #[serde(default = "default_language")]
-    pub language: Option<String>,
+    language: Option<String>,
+    // New format fields (Deepgram backend)
+    #[serde(default)]
+    model: Option<String>,
+    #[serde(default = "default_smart_format")]
+    smart_format: bool,
+    // Common fields
+    #[serde(flatten)]
+    hotkey: HotkeyConfig,
+    #[serde(default = "default_preload")]
+    preload: bool,
+}
+
+impl<'de> Deserialize<'de> for TranscriptionProfile {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let helper = TranscriptionProfileHelper::deserialize(deserializer)?;
+
+        // Determine backend from fields
+        let backend = if let Some(backend_str) = &helper.backend {
+            // New format with explicit backend tag
+            match backend_str.as_str() {
+                "local" => BackendConfig::Local {
+                    model_type: helper.model_type.unwrap_or_default(),
+                    threads: helper.threads,
+                    beam_size: helper.beam_size,
+                    language: helper.language,
+                },
+                "deepgram" => BackendConfig::Deepgram {
+                    model: helper.model.unwrap_or_else(|| "whisper-large".to_owned()),
+                    language: helper.language,
+                    smart_format: helper.smart_format,
+                },
+                _ => {
+                    return Err(serde::de::Error::custom(format!(
+                        "unknown backend type: {backend_str}"
+                    )))
+                }
+            }
+        } else if let Some(model_type) = helper.model_type {
+            // Old format without backend tag - migrate to Local
+            BackendConfig::Local {
+                model_type,
+                threads: helper.threads,
+                beam_size: helper.beam_size,
+                language: helper.language,
+            }
+        } else {
+            // No backend and no model_type - use default
+            BackendConfig::Local {
+                model_type: ModelType::default(),
+                threads: helper.threads,
+                beam_size: helper.beam_size,
+                language: helper.language,
+            }
+        };
+
+        Ok(Self {
+            name: helper.name,
+            backend,
+            hotkey: helper.hotkey,
+            preload: helper.preload,
+        })
+    }
 }
 
 impl TranscriptionProfile {
-    /// Get profile name (explicit name or derived from model type)
+    /// Get profile name (explicit name or derived from backend)
     #[must_use]
-    pub fn name(&self) -> &str {
-        self.name
-            .as_deref()
-            .unwrap_or_else(|| self.model_type.as_str())
+    pub fn name(&self) -> String {
+        self.name.clone().unwrap_or_else(|| match &self.backend {
+            BackendConfig::Local { model_type, .. } => model_type.as_str().to_owned(),
+            BackendConfig::Deepgram { model, .. } => model.clone(),
+        })
     }
 
-    /// Get model path for this profile
+    /// Get model path for this profile (Local backend only)
     #[must_use]
-    pub fn model_path(&self) -> String {
-        self.model_type.model_path()
+    pub fn model_path(&self) -> Option<String> {
+        match &self.backend {
+            BackendConfig::Local { model_type, .. } => Some(model_type.model_path()),
+            BackendConfig::Deepgram { .. } => None,
+        }
+    }
+
+    /// Get model type (Local backend only)
+    #[must_use]
+    pub const fn model_type(&self) -> Option<ModelType> {
+        match &self.backend {
+            BackendConfig::Local { model_type, .. } => Some(*model_type),
+            BackendConfig::Deepgram { .. } => None,
+        }
     }
 }
 
 /// Application configuration
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Config {
+    /// Deepgram API configuration (required if any profile uses Deepgram backend)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deepgram: Option<DeepgramConfig>,
     /// Transcription profiles (each with hotkey + model config)
     #[serde(
         default = "default_profiles",
@@ -332,12 +470,14 @@ fn default_language() -> Option<String> {
 fn default_profiles() -> Vec<TranscriptionProfile> {
     vec![TranscriptionProfile {
         name: None,
-        model_type: ModelType::BaseEn,
+        backend: BackendConfig::Local {
+            model_type: ModelType::BaseEn,
+            threads: default_threads(),
+            beam_size: default_beam_size(),
+            language: default_language(),
+        },
         hotkey: HotkeyConfig::default(),
         preload: default_preload(),
-        threads: default_threads(),
-        beam_size: default_beam_size(),
-        language: default_language(),
     }]
 }
 
@@ -493,6 +633,7 @@ impl Default for AliasesConfig {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            deepgram: None,
             profiles: default_profiles(),
             hotkey: HotkeyConfig::default(),
             audio: AudioConfig::default(),
@@ -591,6 +732,9 @@ impl Config {
 
         // Validate hotkey conflicts
         config.validate_hotkeys()?;
+
+        // Validate Deepgram configuration
+        config.validate_deepgram()?;
 
         Ok(config)
     }
@@ -698,12 +842,14 @@ impl Config {
         // Create single profile from old hotkey + model
         self.profiles = vec![TranscriptionProfile {
             name: None,
-            model_type: self.model.model_type,
+            backend: BackendConfig::Local {
+                model_type: self.model.model_type,
+                threads: self.model.threads,
+                beam_size: self.model.beam_size,
+                language: self.model.language.clone(),
+            },
             hotkey: self.hotkey.clone(),
             preload: self.model.preload,
-            threads: self.model.threads,
-            beam_size: self.model.beam_size,
-            language: self.model.language.clone(),
         }];
     }
 
@@ -714,7 +860,10 @@ impl Config {
         // Count occurrences of each derived name
         let mut name_counts: HashMap<String, usize> = HashMap::new();
         for profile in &self.profiles {
-            let derived_name = profile.model_type.as_str().to_owned();
+            let derived_name = match &profile.backend {
+                BackendConfig::Local { model_type, .. } => model_type.as_str().to_owned(),
+                BackendConfig::Deepgram { model, .. } => model.clone(),
+            };
             *name_counts.entry(derived_name).or_insert(0) += 1;
         }
 
@@ -722,9 +871,12 @@ impl Config {
         let mut name_counters: HashMap<String, usize> = HashMap::new();
         for profile in &mut self.profiles {
             if profile.name.is_none() {
-                let derived_name = profile.model_type.as_str().to_owned();
+                let derived_name = match &profile.backend {
+                    BackendConfig::Local { model_type, .. } => model_type.as_str().to_owned(),
+                    BackendConfig::Deepgram { model, .. } => model.clone(),
+                };
                 if *name_counts.get(&derived_name).unwrap_or(&0) > 1 {
-                    // Multiple profiles with same model_type, generate unique name
+                    // Multiple profiles with same backend name, generate unique name
                     let counter = name_counters.entry(derived_name.clone()).or_insert(0);
                     *counter += 1;
                     profile.name = Some(format!("{derived_name}-{counter}"));
@@ -763,6 +915,28 @@ impl Config {
                         .join(", ")
                 );
             }
+        }
+
+        Ok(())
+    }
+
+    /// Validate Deepgram configuration is present if any profile uses Deepgram backend
+    ///
+    /// # Errors
+    /// Returns error if Deepgram profiles exist without API key configuration
+    fn validate_deepgram(&self) -> Result<()> {
+        let has_deepgram_profile = self
+            .profiles
+            .iter()
+            .any(|p| matches!(p.backend, BackendConfig::Deepgram { .. }));
+
+        if has_deepgram_profile && self.deepgram.is_none() {
+            anyhow::bail!(
+                "Deepgram backend requires [deepgram] section with api_key in config. \
+                Add:\n\n[deepgram]\napi_key = \"YOUR_API_KEY\"\n\n\
+                to {}",
+                Self::config_path()?.display()
+            );
         }
 
         Ok(())
