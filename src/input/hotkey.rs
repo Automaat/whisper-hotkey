@@ -10,7 +10,7 @@ use crate::alias;
 use crate::audio::AudioCapture;
 use crate::config::{AliasesConfig, HotkeyConfig};
 use crate::input::cgevent;
-use crate::transcription::{ModelManager, TranscriptionEngine};
+use crate::transcription::{ModelManager, TranscriptionBackend};
 
 /// Application state machine
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -32,7 +32,7 @@ pub struct HotkeyManager {
     hotkey: HotKey,
     state: Arc<Mutex<AppState>>,
     audio: Arc<Mutex<AudioCapture>>,
-    transcription: Option<Arc<TranscriptionEngine>>,
+    transcription: Option<Arc<dyn TranscriptionBackend>>,
     recording_enabled: bool,
     aliases: Arc<AliasesConfig>,
     /// For lazy loading: model manager + model name
@@ -48,7 +48,7 @@ impl HotkeyManager {
         manager: Arc<GlobalHotKeyManager>,
         config: &HotkeyConfig,
         audio: Arc<Mutex<AudioCapture>>,
-        transcription: Option<Arc<TranscriptionEngine>>,
+        transcription: Option<Arc<dyn TranscriptionBackend>>,
         recording_enabled: bool,
         aliases: Arc<AliasesConfig>,
         lazy_load_config: Option<LazyLoadConfig>,
@@ -424,6 +424,7 @@ impl MultiHotkeyManager {
     /// Returns error if hotkey registration fails or model preloading fails
     pub fn new(
         profiles: &[crate::config::TranscriptionProfile],
+        deepgram_config: Option<&crate::config::DeepgramConfig>,
         audio: Arc<Mutex<AudioCapture>>,
         recording_enabled: bool,
         aliases: &Arc<AliasesConfig>,
@@ -436,13 +437,14 @@ impl MultiHotkeyManager {
 
         // Create model manager (preloads where profile.preload=true)
         let model_manager = Arc::new(Mutex::new(
-            ModelManager::new(profiles).context("failed to initialize model manager")?,
+            ModelManager::new(profiles, deepgram_config)
+                .context("failed to initialize model manager")?,
         ));
 
         let mut managers = Vec::new();
 
         for profile in profiles {
-            let model_name = profile.name().to_owned();
+            let model_name = profile.name();
 
             // Get engine if preloaded, None if lazy
             let (engine, lazy_config) = if profile.preload {

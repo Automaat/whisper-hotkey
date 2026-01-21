@@ -1,8 +1,10 @@
 use anyhow::{Context, Result};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
-use thiserror::Error;
+use tokio::runtime::Runtime;
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
+
+use super::backend::TranscriptionError;
 
 /// Trait for transcription operations (enables testing via mocking)
 ///
@@ -19,28 +21,6 @@ trait TranscriptionInterface: Send + Sync {
     /// # Errors
     /// Returns error if Whisper inference fails
     fn transcribe(&self, audio_data: &[f32]) -> Result<String, TranscriptionError>;
-}
-
-/// Errors that can occur during transcription
-#[derive(Debug, Error)]
-pub enum TranscriptionError {
-    /// Failed to load Whisper model
-    #[error("failed to load whisper model from {path}: {source}")]
-    ModelLoad {
-        /// Path to model file
-        path: String,
-        /// Underlying error
-        source: anyhow::Error,
-    },
-
-    /// Failed to create Whisper inference state
-    #[error("failed to create whisper state")]
-    #[allow(dead_code)] // Used in Phase 5
-    StateCreation,
-
-    /// Transcription inference failed
-    #[error("failed to transcribe audio")]
-    Transcription(#[from] anyhow::Error),
 }
 
 /// Whisper transcription engine
@@ -207,6 +187,17 @@ impl TranscriptionInterface for TranscriptionEngine {
     }
 }
 
+/// Implement `TranscriptionBackend` trait for `TranscriptionEngine`
+impl super::backend::TranscriptionBackend for TranscriptionEngine {
+    fn transcribe(&self, audio_data: &[f32]) -> Result<String, TranscriptionError> {
+        self.transcribe_impl(audio_data)
+    }
+
+    fn backend_name(&self) -> &'static str {
+        "whisper"
+    }
+}
+
 // SAFETY: TranscriptionEngine is thread-safe because:
 // 1. WhisperContext is wrapped in Arc<Mutex<>>, ensuring exclusive access
 // 2. All methods require acquiring the mutex lock before accessing the context
@@ -217,61 +208,132 @@ unsafe impl Send for TranscriptionEngine {}
 #[allow(unsafe_code)]
 unsafe impl Sync for TranscriptionEngine {}
 
-/// Manages multiple transcription engines with preloading and lazy loading
+/// Type alias for backend map to reduce complexity
+type BackendMap = std::collections::HashMap<String, Arc<dyn super::backend::TranscriptionBackend>>;
+
+/// Manages multiple transcription backends with preloading and lazy loading
 pub struct ModelManager {
-    /// Preloaded engines (`model_type` -> engine)
-    preloaded: std::collections::HashMap<String, Arc<TranscriptionEngine>>,
-    /// Lazy loading configs for non-preloaded models
-    lazy_configs: std::collections::HashMap<String, LazyModelConfig>,
-    /// Models currently being loaded (prevents concurrent load race condition)
+    /// Preloaded backends (`profile_name` -> backend)
+    preloaded: BackendMap,
+    /// Lazy loading configs for non-preloaded backends
+    lazy_configs: std::collections::HashMap<String, LazyBackendConfig>,
+    /// Backends currently being loaded (prevents concurrent load race condition)
     loading: std::collections::HashSet<String>,
+    /// Deepgram API key (shared across Deepgram backends)
+    deepgram_api_key: Option<String>,
+    /// Shared tokio runtime for Deepgram backends
+    #[allow(dead_code)] // TODO: Use when Deepgram API implementation is complete
+    deepgram_runtime: Option<Arc<Runtime>>,
 }
 
-/// Configuration for lazy-loading a model
-struct LazyModelConfig {
-    model_path: std::path::PathBuf,
-    threads: usize,
-    beam_size: usize,
-    language: Option<String>,
+/// Configuration for lazy-loading a backend
+enum LazyBackendConfig {
+    Local {
+        model_path: std::path::PathBuf,
+        threads: usize,
+        beam_size: usize,
+        language: Option<String>,
+    },
+    Deepgram {
+        model: String,
+        language: Option<String>,
+        smart_format: bool,
+    },
 }
 
 impl ModelManager {
     /// Creates new `ModelManager` and preloads models where `profile.preload=true`
     ///
     /// # Errors
-    /// Returns error if any preloaded model fails to load
-    pub fn new(profiles: &[crate::config::TranscriptionProfile]) -> Result<Self> {
+    /// Returns error if any preloaded model fails to load or if Deepgram config is required but missing
+    pub fn new(
+        profiles: &[crate::config::TranscriptionProfile],
+        deepgram_config: Option<&crate::config::DeepgramConfig>,
+    ) -> Result<Self> {
+        use crate::config::BackendConfig;
         use std::collections::{HashMap, HashSet};
 
         let mut preloaded = HashMap::new();
         let mut lazy_configs = HashMap::new();
 
-        for profile in profiles {
-            let model_name = profile.name().to_owned();
-            let model_path = crate::config::Config::expand_path(&profile.model_path())?;
+        // Create shared Deepgram runtime if needed
+        let (deepgram_api_key, deepgram_runtime) = if let Some(dg_config) = deepgram_config {
+            let runtime = tokio::runtime::Runtime::new()
+                .context("failed to create tokio runtime for Deepgram")?;
+            (Some(dg_config.api_key.clone()), Some(Arc::new(runtime)))
+        } else {
+            (None, None)
+        };
 
-            if profile.preload {
-                // Preload model at startup
-                tracing::info!("preloading model: {}", model_name);
-                let engine = Arc::new(TranscriptionEngine::new(
-                    &model_path,
-                    profile.threads,
-                    profile.beam_size,
-                    profile.language.clone(),
-                )?);
-                preloaded.insert(model_name, engine);
-            } else {
-                // Store config for lazy loading
-                tracing::info!("deferring load for model: {}", model_name);
-                lazy_configs.insert(
-                    model_name,
-                    LazyModelConfig {
-                        model_path,
-                        threads: profile.threads,
-                        beam_size: profile.beam_size,
-                        language: profile.language.clone(),
-                    },
-                );
+        for profile in profiles {
+            let profile_name = profile.name();
+
+            match &profile.backend {
+                BackendConfig::Local {
+                    model_type,
+                    threads,
+                    beam_size,
+                    language,
+                } => {
+                    let model_path = crate::config::Config::expand_path(&model_type.model_path())?;
+
+                    if profile.preload {
+                        tracing::info!("preloading local model: {}", profile_name);
+                        let engine: Arc<dyn super::backend::TranscriptionBackend> =
+                            Arc::new(TranscriptionEngine::new(
+                                &model_path,
+                                *threads,
+                                *beam_size,
+                                language.clone(),
+                            )?);
+                        preloaded.insert(profile_name, engine);
+                    } else {
+                        tracing::info!("deferring load for local model: {}", profile_name);
+                        lazy_configs.insert(
+                            profile_name.clone(),
+                            LazyBackendConfig::Local {
+                                model_path,
+                                threads: *threads,
+                                beam_size: *beam_size,
+                                language: language.clone(),
+                            },
+                        );
+                    }
+                }
+                BackendConfig::Deepgram {
+                    model,
+                    language,
+                    smart_format,
+                } => {
+                    let Some(ref api_key) = deepgram_api_key else {
+                        anyhow::bail!(
+                            "profile '{profile_name}' uses Deepgram backend but no API key configured"
+                        );
+                    };
+
+                    if profile.preload {
+                        tracing::info!("preloading deepgram backend: {profile_name}");
+                        let backend = super::deepgram::DeepgramBackend::new(
+                            api_key,
+                            model.clone(),
+                            language.clone(),
+                            *smart_format,
+                        )?;
+                        let backend: Arc<dyn super::backend::TranscriptionBackend> =
+                            Arc::new(backend);
+                        preloaded.insert(profile_name, backend);
+                    } else {
+                        tracing::info!("deferring load for deepgram backend: {profile_name}");
+                        lazy_configs.insert(
+                            profile_name.clone(),
+                            LazyBackendConfig::Deepgram {
+                                model: model.clone(),
+                                language: language.clone(),
+                                smart_format: *smart_format,
+                            },
+                        );
+                    }
+                }
             }
         }
 
@@ -279,50 +341,83 @@ impl ModelManager {
             preloaded,
             lazy_configs,
             loading: HashSet::new(),
+            deepgram_api_key,
+            deepgram_runtime,
         })
     }
 
-    /// Gets engine for model (preloaded or lazy loads on first use)
+    /// Gets backend for profile (preloaded or lazy loads on first use)
     ///
     /// # Errors
-    /// Returns error if model not found in config or fails to load
-    pub fn get_or_load(&mut self, model_name: &str) -> Result<Arc<TranscriptionEngine>> {
-        // Return preloaded engine if exists (fast path)
-        if let Some(engine) = self.preloaded.get(model_name) {
-            return Ok(Arc::clone(engine));
+    /// Returns error if profile not found in config or fails to load
+    pub fn get_or_load(
+        &mut self,
+        profile_name: &str,
+    ) -> Result<Arc<dyn super::backend::TranscriptionBackend>> {
+        // Return preloaded backend if exists (fast path)
+        if let Some(backend) = self.preloaded.get(profile_name) {
+            return Ok(Arc::clone(backend));
         }
 
         // Check if currently being loaded by another thread
-        if self.loading.contains(model_name) {
+        if self.loading.contains(profile_name) {
             anyhow::bail!(
-                "model is currently being loaded by another thread: {model_name} (retry after load completes)"
+                "backend is currently being loaded by another thread: {profile_name} (retry after load completes)"
             );
         }
 
         // Lazy load if config exists
-        if let Some(config) = self.lazy_configs.remove(model_name) {
+        if let Some(config) = self.lazy_configs.remove(profile_name) {
             // Mark as loading to prevent concurrent loads
-            self.loading.insert(model_name.to_owned());
+            self.loading.insert(profile_name.to_owned());
 
-            tracing::info!("lazy loading model: {}", model_name);
-            let load_result = TranscriptionEngine::new(
-                &config.model_path,
-                config.threads,
-                config.beam_size,
-                config.language,
-            );
+            tracing::info!("lazy loading backend: {}", profile_name);
+
+            let load_result: Result<Arc<dyn super::backend::TranscriptionBackend>> = match config {
+                LazyBackendConfig::Local {
+                    model_path,
+                    threads,
+                    beam_size,
+                    language,
+                } => TranscriptionEngine::new(&model_path, threads, beam_size, language)
+                    .map(|engine| Arc::new(engine) as Arc<dyn super::backend::TranscriptionBackend>)
+                    .map_err(anyhow::Error::from),
+                LazyBackendConfig::Deepgram {
+                    model,
+                    language,
+                    smart_format,
+                } => self.deepgram_api_key.as_ref().map_or_else(
+                    || {
+                        Err(anyhow::Error::from(
+                            super::backend::TranscriptionError::DeepgramConfigMissing,
+                        ))
+                    },
+                    |api_key| {
+                        super::deepgram::DeepgramBackend::new(
+                            api_key,
+                            model,
+                            language,
+                            smart_format,
+                        )
+                        .map(|backend| {
+                            Arc::new(backend) as Arc<dyn super::backend::TranscriptionBackend>
+                        })
+                        .map_err(anyhow::Error::from)
+                    },
+                ),
+            };
 
             // Remove from loading set before returning (cleanup in all paths)
-            self.loading.remove(model_name);
+            self.loading.remove(profile_name);
 
             // Handle load result
-            let engine = Arc::new(load_result?);
+            let backend = load_result?;
             self.preloaded
-                .insert(model_name.to_owned(), Arc::clone(&engine));
-            return Ok(engine);
+                .insert(profile_name.to_owned(), Arc::clone(&backend));
+            return Ok(backend);
         }
 
-        anyhow::bail!("model not found in configuration: {model_name}")
+        anyhow::bail!("profile not found in configuration: {profile_name}")
     }
 
     /// Returns whether a model is currently loaded (preloaded or lazily loaded)

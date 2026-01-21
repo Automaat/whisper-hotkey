@@ -183,16 +183,14 @@ impl TrayManager {
 
     fn format_profile_label(profile: &crate::config::TranscriptionProfile) -> String {
         let hotkey_str = Self::format_hotkey(&profile.hotkey.modifiers, &profile.hotkey.key);
-        let profile_name = profile
-            .name
-            .as_deref()
-            .unwrap_or(profile.model_type.as_str());
-        format!(
-            "{} ({}): {}",
-            profile_name,
-            hotkey_str,
-            profile.model_type.as_str()
-        )
+        let profile_name = profile.name();
+        let backend_info = match &profile.backend {
+            crate::config::BackendConfig::Local { model_type, .. } => {
+                model_type.as_str().to_owned()
+            }
+            crate::config::BackendConfig::Deepgram { model, .. } => model.clone(),
+        };
+        format!("{} ({}): {}", profile_name, hotkey_str, backend_info)
     }
 
     pub(crate) fn build_menu(config: &Config, app_state: Option<AppState>) -> Result<Menu> {
