@@ -565,4 +565,87 @@ mod tests {
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("no active stream"));
     }
+
+    #[test]
+    fn test_build_options_with_language() {
+        let runtime = Arc::new(Runtime::new().unwrap());
+        let backend = DeepgramBackend::new(
+            "test_key",
+            "nova-2".to_owned(),
+            Some("en".to_owned()),
+            true,
+            runtime,
+        )
+        .unwrap();
+
+        // Options should be built without panicking
+        // Model and language are set via builder
+        let _options = backend.build_options();
+        // Verifying build succeeds is sufficient
+    }
+
+    #[test]
+    fn test_build_options_without_language() {
+        let runtime = Arc::new(Runtime::new().unwrap());
+        let backend =
+            DeepgramBackend::new("test_key", "nova-2".to_owned(), None, false, runtime).unwrap();
+
+        // Options should be built without panicking (auto-detect mode)
+        let _options = backend.build_options();
+    }
+
+    #[test]
+    fn test_build_options_smart_format_enabled() {
+        let runtime = Arc::new(Runtime::new().unwrap());
+        let backend =
+            DeepgramBackend::new("test_key", "whisper-large".to_owned(), None, true, runtime)
+                .unwrap();
+
+        // Options built with smart_format enabled
+        let _options = backend.build_options();
+    }
+
+    #[test]
+    fn test_backend_name() {
+        let runtime = Arc::new(Runtime::new().unwrap());
+        let backend =
+            DeepgramBackend::new("test_key", "nova-2".to_owned(), None, false, runtime).unwrap();
+
+        assert_eq!(backend.backend_name(), "deepgram");
+    }
+
+    #[test]
+    fn test_supports_streaming() {
+        let runtime = Arc::new(Runtime::new().unwrap());
+        let backend =
+            DeepgramBackend::new("test_key", "nova-2".to_owned(), None, false, runtime).unwrap();
+
+        assert!(backend.supports_streaming());
+    }
+
+    #[test]
+    fn test_convert_to_pcm_i16_nan_handling() {
+        // NaN should be clamped (behavior depends on f32::clamp)
+        let samples = vec![f32::NAN, f32::INFINITY, f32::NEG_INFINITY];
+        let result = DeepgramBackend::convert_to_pcm_i16(&samples);
+
+        // Should not panic and produce 6 bytes
+        assert_eq!(result.len(), 6);
+    }
+
+    #[test]
+    fn test_convert_to_pcm_i16_alternating() {
+        let samples = vec![1.0_f32, -1.0_f32, 0.0_f32];
+        let result = DeepgramBackend::convert_to_pcm_i16(&samples);
+
+        assert_eq!(result.len(), 6);
+
+        let v1 = i16::from_le_bytes([result[0], result[1]]);
+        let v2 = i16::from_le_bytes([result[2], result[3]]);
+        let v3 = i16::from_le_bytes([result[4], result[5]]);
+
+        assert_eq!(v1, i16::MAX);
+        assert_eq!(v2, -i16::MAX);
+        assert_eq!(v3, 0);
+    }
 }

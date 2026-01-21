@@ -1041,4 +1041,190 @@ mod tests {
         let engine = manager_mut.get_or_load("preloaded-model").unwrap();
         assert!(Arc::strong_count(&engine) >= 1);
     }
+
+    #[test]
+    fn test_model_manager_deepgram_without_api_key() {
+        use crate::config::{BackendConfig, HotkeyConfig, TranscriptionProfile};
+
+        let profiles = vec![TranscriptionProfile {
+            name: Some("deepgram-profile".to_owned()),
+            backend: BackendConfig::Deepgram {
+                model: "nova-3".to_owned(),
+                language: None,
+                smart_format: true,
+            },
+            hotkey: HotkeyConfig::default(),
+            preload: false,
+        }];
+
+        // No deepgram config provided
+        let result = ModelManager::new(&profiles, None);
+        assert!(result.is_err());
+        if let Err(err) = result {
+            let err_str = err.to_string();
+            assert!(err_str.contains("Deepgram"));
+            assert!(err_str.contains("API key"));
+        }
+    }
+
+    #[test]
+    fn test_model_manager_deepgram_lazy_config() {
+        use crate::config::{BackendConfig, DeepgramConfig, HotkeyConfig, TranscriptionProfile};
+
+        let profiles = vec![TranscriptionProfile {
+            name: Some("deepgram-lazy".to_owned()),
+            backend: BackendConfig::Deepgram {
+                model: "nova-3".to_owned(),
+                language: Some("en".to_owned()),
+                smart_format: true,
+            },
+            hotkey: HotkeyConfig::default(),
+            preload: false, // lazy load
+        }];
+
+        let deepgram_config = DeepgramConfig {
+            api_key: "test_api_key".to_owned(),
+        };
+
+        let manager = ModelManager::new(&profiles, Some(&deepgram_config)).unwrap();
+        assert_eq!(manager.preloaded.len(), 0);
+        assert_eq!(manager.lazy_configs.len(), 1);
+        assert!(manager.lazy_configs.contains_key("deepgram-lazy"));
+        assert!(!manager.is_loaded("deepgram-lazy"));
+        assert!(manager.deepgram_api_key.is_some());
+        assert!(manager.deepgram_runtime.is_some());
+    }
+
+    #[test]
+    fn test_model_manager_deepgram_preload() {
+        use crate::config::{BackendConfig, DeepgramConfig, HotkeyConfig, TranscriptionProfile};
+
+        let profiles = vec![TranscriptionProfile {
+            name: Some("deepgram-preload".to_owned()),
+            backend: BackendConfig::Deepgram {
+                model: "nova-3".to_owned(),
+                language: Some("en".to_owned()),
+                smart_format: true,
+            },
+            hotkey: HotkeyConfig::default(),
+            preload: true, // preload
+        }];
+
+        let deepgram_config = DeepgramConfig {
+            api_key: "test_api_key".to_owned(),
+        };
+
+        let manager = ModelManager::new(&profiles, Some(&deepgram_config)).unwrap();
+        assert_eq!(manager.preloaded.len(), 1);
+        assert_eq!(manager.lazy_configs.len(), 0);
+        assert!(manager.is_loaded("deepgram-preload"));
+    }
+
+    #[test]
+    fn test_model_manager_mixed_backends() {
+        use crate::config::{
+            BackendConfig, DeepgramConfig, HotkeyConfig, ModelType, TranscriptionProfile,
+        };
+
+        let profiles = vec![
+            TranscriptionProfile {
+                name: Some("local-lazy".to_owned()),
+                backend: BackendConfig::Local {
+                    model_type: ModelType::BaseEn,
+                    threads: 4,
+                    beam_size: 1,
+                    language: Some("en".to_owned()),
+                },
+                hotkey: HotkeyConfig {
+                    modifiers: vec!["Command".to_owned()],
+                    key: "L".to_owned(),
+                },
+                preload: false,
+            },
+            TranscriptionProfile {
+                name: Some("deepgram-lazy".to_owned()),
+                backend: BackendConfig::Deepgram {
+                    model: "nova-3".to_owned(),
+                    language: None,
+                    smart_format: true,
+                },
+                hotkey: HotkeyConfig {
+                    modifiers: vec!["Command".to_owned()],
+                    key: "D".to_owned(),
+                },
+                preload: false,
+            },
+        ];
+
+        let deepgram_config = DeepgramConfig {
+            api_key: "test_api_key".to_owned(),
+        };
+
+        let manager = ModelManager::new(&profiles, Some(&deepgram_config)).unwrap();
+        assert_eq!(manager.preloaded.len(), 0);
+        assert_eq!(manager.lazy_configs.len(), 2);
+        assert!(manager.lazy_configs.contains_key("local-lazy"));
+        assert!(manager.lazy_configs.contains_key("deepgram-lazy"));
+    }
+
+    #[test]
+    fn test_model_manager_deepgram_get_or_load_stores_config() {
+        use crate::config::{BackendConfig, DeepgramConfig, HotkeyConfig, TranscriptionProfile};
+
+        let profiles = vec![TranscriptionProfile {
+            name: Some("dg-test".to_owned()),
+            backend: BackendConfig::Deepgram {
+                model: "whisper-large".to_owned(),
+                language: Some("de".to_owned()),
+                smart_format: false,
+            },
+            hotkey: HotkeyConfig::default(),
+            preload: false,
+        }];
+
+        let deepgram_config = DeepgramConfig {
+            api_key: "test_api_key".to_owned(),
+        };
+
+        let manager = ModelManager::new(&profiles, Some(&deepgram_config)).unwrap();
+
+        // Verify lazy config stores correct values
+        let config = manager.lazy_configs.get("dg-test").unwrap();
+        assert!(
+            matches!(config, LazyBackendConfig::Deepgram { .. }),
+            "expected Deepgram backend config"
+        );
+        if let LazyBackendConfig::Deepgram {
+            model,
+            language,
+            smart_format,
+        } = config
+        {
+            assert_eq!(model, "whisper-large");
+            assert_eq!(*language, Some("de".to_owned()));
+            assert!(!*smart_format);
+        }
+    }
+
+    #[test]
+    fn test_model_manager_no_runtime_for_local_only() {
+        use crate::config::{BackendConfig, HotkeyConfig, ModelType, TranscriptionProfile};
+
+        let profiles = vec![TranscriptionProfile {
+            name: Some("local-only".to_owned()),
+            backend: BackendConfig::Local {
+                model_type: ModelType::BaseEn,
+                threads: 4,
+                beam_size: 1,
+                language: Some("en".to_owned()),
+            },
+            hotkey: HotkeyConfig::default(),
+            preload: false,
+        }];
+
+        // No deepgram config - no runtime created
+        let manager = ModelManager::new(&profiles, None).unwrap();
+        assert!(manager.deepgram_api_key.is_none());
+        assert!(manager.deepgram_runtime.is_none());
+    }
 }
