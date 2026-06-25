@@ -34,7 +34,7 @@ strsim = "0.11"
 deepgram = "0.10"
 
 # Menubar Integration
-tray-icon = "0.21"
+tray-icon = "0.24"
 image = "0.25"
 
 [dev-dependencies]
