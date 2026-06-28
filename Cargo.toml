@@ -38,7 +38,7 @@ tray-icon = "0.24"
 image = "0.25"
 
 [dev-dependencies]
-mockall = "0.14"
+mockall = "0.15"
 
 [lints.rust]
 unsafe_code = "warn"
