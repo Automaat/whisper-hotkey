@@ -1,5 +1,5 @@
 [tools]
-rust = "1.97.0"  # edition2024 support for coreaudio-sys
+rust = "1.97.1"  # edition2024 support for coreaudio-sys
 shellcheck = "0.11.0"
 actionlint = "1.7.12"
 mdbook = "0.5.4"
