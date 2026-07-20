@@ -39,7 +39,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
         with:
-          version: 2025.11.11
+          version: 2025.12.13
       - name: Install rustfmt
         run: rustup component add rustfmt
       - name: Check formatting
@@ -54,7 +54,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
         with:
-          version: 2025.11.11
+          version: 2025.12.13
       - name: Install sccache
         run: brew install sccache
       - name: Cache sccache
@@ -102,7 +102,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
         with:
-          version: 2025.11.11
+          version: 2025.12.13
       - name: Install sccache
         run: brew install sccache
       - name: Cache sccache
@@ -166,7 +166,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
         with:
-          version: 2025.11.11
+          version: 2025.12.13
       - name: Install sccache
         run: brew install sccache
       - name: Cache sccache
