@@ -24,7 +24,7 @@ global-hotkey = "0.9"
 
 # Phase 3: Audio Recording
 cpal = "0.18"
-ringbuf = "0.5"
+ringbuf = "0.6"
 hound = "3"
 
 # Phase 4: Whisper Integration
